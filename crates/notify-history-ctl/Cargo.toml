@@ -1,0 +1,15 @@
+[package]
+name = "notify-history-ctl"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "notify-history-ctl"
+path = "src/main.rs"
+
+[dependencies]
+clap = { workspace = true }
+clap_complete = { workspace = true }
+dirs = { workspace = true }
+ctrlc = { workspace = true }
