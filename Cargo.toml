@@ -1,0 +1,24 @@
+[workspace]
+members = [
+    "crates/notify-history-ctl",
+    "crates/notify-history",
+]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+[workspace.dependencies]
+clap = { version = "4", features = ["derive"] }
+clap_complete = "4"
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"
+dirs = "5"
+chrono = "0.4"
+ratatui = "0.29"
+crossterm = "0.28"
+fuzzy-matcher = "0.3"
+unicode-width = "0.2"
+ctrlc = "3"
