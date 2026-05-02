@@ -57,8 +57,12 @@ pub fn draw(f: &mut Frame, app: &mut App) {
 
     let in_filter = matches!(app.mode, Mode::Filter);
 
-    // Build layout constraints (content | [filter] | dots | hints)
-    let mut constraints: Vec<Constraint> = vec![Constraint::Fill(1)];
+    // Build layout constraints (header | gap | content | [filter] | dots | hints)
+    let mut constraints: Vec<Constraint> = vec![
+        Constraint::Length(1), // header
+        Constraint::Length(1), // blank gap below header
+        Constraint::Fill(1),   // notification list
+    ];
     if in_filter {
         constraints.push(Constraint::Length(1));
     }
@@ -66,12 +70,14 @@ pub fn draw(f: &mut Frame, app: &mut App) {
     constraints.push(Constraint::Length(1)); // hints bar
 
     let chunks = Layout::vertical(constraints).split(area);
-    let content_area = chunks[0];
+    let header_area = chunks[0];
+    // chunks[1] is the blank gap — nothing rendered there
+    let content_area = chunks[2];
 
     // Must happen before rendering so pagination is correct
     app.update_items_per_page(content_area.height);
 
-    let mut chunk_idx: usize = 1;
+    let mut chunk_idx: usize = 3;
 
     if in_filter {
         render_filter_bar(f, app, chunks[chunk_idx], &colors);
@@ -82,6 +88,7 @@ pub fn draw(f: &mut Frame, app: &mut App) {
     chunk_idx += 1;
     let hints_area = chunks[chunk_idx];
 
+    render_header(f, app, header_area, &colors);
     render_notifications(f, app, content_area, &colors);
     render_dots(f, app, dots_area, &colors);
     render_hints(f, app, hints_area, &colors);
@@ -97,6 +104,26 @@ pub fn draw(f: &mut Frame, app: &mut App) {
         Mode::Help => render_help_popup(f, area, &colors),
         _ => {}
     }
+}
+
+// ── Header ────────────────────────────────────────────────────────────────────
+
+fn render_header(f: &mut Frame, _app: &App, area: Rect, colors: &AppColors) {
+    let title = if area.width >= 20 {
+        "Notification History"
+    } else if area.width >= 13 {
+        "Notifications"
+    } else {
+        "Notifs."
+    };
+    f.render_widget(
+        Paragraph::new(Line::from(Span::styled(
+            title.to_owned(),
+            Style::default().fg(colors.accent).bg(colors.bg),
+        )))
+        .style(Style::default().bg(colors.bg)),
+        area,
+    );
 }
 
 // ── Notification list ─────────────────────────────────────────────────────────
@@ -119,7 +146,7 @@ fn render_notifications(f: &mut Frame, app: &App, area: Rect, colors: &AppColors
             Style::default().fg(colors.fg).bg(colors.bg),
         )));
     } else {
-        let body_lines_count = app.config.display.body_lines as usize;
+        let body_lines_count = app.effective_body_lines;
         let show_app = app.config.display.show_app;
         let cursor_disp_idx = app.cursor_display_idx();
         let total = end - start;

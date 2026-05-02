@@ -54,13 +54,18 @@ pub struct App {
     /// Rows a single notification occupies on screen (title + body + datetime + separator).
     pub rows_per_notif: usize,
 
+    /// Effective body lines after capping against the available content height.
+    /// Updated every frame by `update_items_per_page`.
+    pub effective_body_lines: usize,
+
     filter: Filter,
 }
 
 impl App {
     pub fn new(config: Config) -> Self {
         let history_file = config.history_file();
-        let rows_per_notif = 3 + config.display.body_lines as usize;
+        let body_lines = config.display.body_lines as usize;
+        let rows_per_notif = 3 + body_lines;
         let mut app = Self {
             all_notifications: Vec::new(),
             display_list: Vec::new(),
@@ -73,6 +78,7 @@ impl App {
             history_file,
             config,
             rows_per_notif,
+            effective_body_lines: body_lines,
             filter: Filter::new(),
         };
         app.load_notifications();
@@ -133,11 +139,21 @@ impl App {
     // ── Layout ────────────────────────────────────────────────────────────────
 
     pub fn update_items_per_page(&mut self, content_height: u16) {
-        let rows = self.rows_per_notif.max(1);
-        // For N items each `item_rows` tall with N-1 separators, total height is
-        // N*(item_rows+1)-1.  Solving gives N = (H+1)/(item_rows+1) where
-        // rows_per_notif already includes the separator, so the formula is simply
-        // (content_height + 1) / rows_per_notif.
+        // Cap body lines so a single notification always fits:
+        // a notif needs at least summary(1) + datetime(1) = 2 fixed rows; the rest
+        // can be body lines.
+        let max_body = (content_height as usize).saturating_sub(2);
+        let effective = (self.config.display.body_lines as usize).min(max_body);
+        self.effective_body_lines = effective;
+
+        // rows_per_notif = summary(1) + body_lines + datetime(1) + separator(1)
+        let rows = (effective + 3).max(1);
+        self.rows_per_notif = rows;
+
+        // For N items each `rows` tall with N-1 separators:
+        //   total = N*rows + (N-1) = N*(rows+1) - 1   [separator already in rows]
+        // With rows_per_notif including the separator:
+        //   total = N*rows_per_notif - 1  => N = (H+1)/rows_per_notif
         let new_count = ((content_height as usize + 1) / rows).max(1);
         if new_count != self.items_per_page {
             self.items_per_page = new_count;
@@ -295,7 +311,7 @@ impl App {
         let body_lines: Vec<Vec<usize>> = notif
             .body
             .lines()
-            .take(self.config.display.body_lines as usize)
+            .take(self.effective_body_lines)
             .map(|line| self.filter.match_indices(q, line).unwrap_or_default())
             .collect();
 

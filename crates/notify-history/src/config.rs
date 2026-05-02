@@ -16,7 +16,7 @@ fn default_show_app() -> bool {
     true
 }
 fn default_body_lines() -> u8 {
-    4
+    3
 }
 
 impl Default for DisplayConfig {
