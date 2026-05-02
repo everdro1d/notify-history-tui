@@ -290,6 +290,11 @@ fn render_notifications(f: &mut Frame, app: &App, area: Rect, colors: &AppColors
 
 // ── Page dots ─────────────────────────────────────────────────────────────────
 
+/// Minimum terminal width at which the dots row is rendered (1 dot + both markers).
+const DOTS_MIN_WIDTH: usize = 11;
+/// Column width of each truncation marker ("NN..." / "...NN" / "99+.." / "..+99").
+const DOTS_MARKER_WIDTH: usize = 5;
+
 fn render_dots(f: &mut Frame, app: &App, area: Rect, colors: &AppColors) {
     let n = app.num_pages();
     if n <= 1 {
@@ -300,28 +305,105 @@ fn render_dots(f: &mut Frame, app: &App, area: Rect, colors: &AppColors) {
         return;
     }
 
-    // Build dot spans
-    let mut dot_spans: Vec<Span<'static>> = Vec::new();
-    for i in 0..n {
+    let width = area.width as usize;
+    // Each dot is 1 col, spaces between are 1 col → total = n * 2 - 1
+    let full_width = n * 2 - 1;
+
+    // ── All dots fit: render normally ────────────────────────────────────────
+    if full_width <= width {
+        let mut dot_spans: Vec<Span<'static>> = Vec::new();
+        for i in 0..n {
+            let (ch, style) = if i == app.page {
+                ("●", Style::default().fg(colors.accent).bg(colors.bg))
+            } else {
+                ("○", Style::default().fg(colors.fg).bg(colors.bg))
+            };
+            dot_spans.push(Span::styled(ch.to_owned(), style));
+            if i + 1 < n {
+                dot_spans.push(Span::styled(" ".to_owned(), Style::default().bg(colors.bg)));
+            }
+        }
+        let pad = width.saturating_sub(full_width) / 2;
+        let mut all: Vec<Span<'static>> =
+            vec![Span::styled(" ".repeat(pad), Style::default().bg(colors.bg))];
+        all.extend(dot_spans);
+        f.render_widget(
+            Paragraph::new(Line::from(all)).style(Style::default().bg(colors.bg)),
+            area,
+        );
+        return;
+    }
+
+    // ── Below minimum width: render blank ────────────────────────────────────
+    if width < DOTS_MIN_WIDTH {
+        f.render_widget(
+            Paragraph::new("").style(Style::default().bg(colors.bg)),
+            area,
+        );
+        return;
+    }
+
+    // ── Truncated rendering ──────────────────────────────────────────────────
+    // Each marker is DOTS_MARKER_WIDTH cols when present (both = 2*DOTS_MARKER_WIDTH - 1 fixed chars).
+    // Solve for k visible dots: (2*DOTS_MARKER_WIDTH - 1) + 2k ≤ width  →  k = (width - (2*DOTS_MARKER_WIDTH - 1)) / 2, min 1.
+    // k is always ≥ 1 due to .max(1) and the DOTS_MIN_WIDTH guard above.
+    let k = ((width - (2 * DOTS_MARKER_WIDTH - 1)) / 2).max(1);
+
+    // Centre the window on the current page, then clamp so it stays in bounds.
+    let half = (k - 1) / 2;
+    let ideal_start = app.page.saturating_sub(half);
+    let window_start = ideal_start.min(n.saturating_sub(k));
+    let window_end = window_start + k - 1;
+
+    let left_count = window_start;           // pages hidden to the left
+    let right_count = n - 1 - window_end;    // pages hidden to the right
+
+    let dim_s = Style::default()
+        .fg(colors.fg)
+        .bg(colors.bg)
+        .add_modifier(Modifier::DIM);
+
+    let mut spans: Vec<Span<'static>> = Vec::new();
+
+    // Left marker – omitted when nothing is hidden on that side.
+    if left_count > 0 {
+        let s = if left_count >= 99 {
+            "99+..".to_owned()
+        } else {
+            format!("{:2}...", left_count)
+        };
+        spans.push(Span::styled(s, dim_s));
+    }
+
+    // Visible dots
+    for i in window_start..=window_end {
         let (ch, style) = if i == app.page {
             ("●", Style::default().fg(colors.accent).bg(colors.bg))
         } else {
             ("○", Style::default().fg(colors.fg).bg(colors.bg))
         };
-        dot_spans.push(Span::styled(ch.to_owned(), style));
-        if i + 1 < n {
-            dot_spans.push(Span::styled(" ".to_owned(), Style::default().bg(colors.bg)));
+        spans.push(Span::styled(ch.to_owned(), style));
+        if i < window_end {
+            spans.push(Span::styled(" ".to_owned(), Style::default().bg(colors.bg)));
         }
     }
 
-    // Center: each dot = 1 col, each space = 1 col → total = n * 2 - 1
-    let total_width = n * 2 - 1;
-    let pad = (area.width as usize).saturating_sub(total_width) / 2;
-    let mut all: Vec<Span<'static>> = vec![Span::styled(
-        " ".repeat(pad),
-        Style::default().bg(colors.bg),
-    )];
-    all.extend(dot_spans);
+    // Right marker – omitted when nothing is hidden on that side.
+    if right_count > 0 {
+        let s = if right_count >= 99 {
+            "..+99".to_owned()
+        } else {
+            format!("...{:2}", right_count)
+        };
+        spans.push(Span::styled(s, dim_s));
+    }
+
+    // Centre the assembled content in the row.
+    let content_width: usize = spans.iter().map(|s| s.content.width()).sum();
+    let pad = width.saturating_sub(content_width) / 2;
+    let mut all: Vec<Span<'static>> =
+        vec![Span::styled(" ".repeat(pad), Style::default().bg(colors.bg))];
+    all.extend(spans);
 
     f.render_widget(
         Paragraph::new(Line::from(all)).style(Style::default().bg(colors.bg)),
