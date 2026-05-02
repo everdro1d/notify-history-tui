@@ -61,7 +61,9 @@ pub fn draw(f: &mut Frame, app: &mut App) {
     // Build layout constraints (header | count | content | [filter] | dots | hints)
     let mut constraints: Vec<Constraint> = vec![
         Constraint::Length(1), // header
+        Constraint::Length(1), // blank gap below header
         Constraint::Length(1), // count bar
+        Constraint::Length(1), // blank gap below count bar
         Constraint::Fill(1),   // notification list
     ];
     if in_filter {
@@ -72,13 +74,13 @@ pub fn draw(f: &mut Frame, app: &mut App) {
 
     let chunks = Layout::vertical(constraints).split(area);
     let header_area = chunks[0];
-    let count_area = chunks[1];
-    let content_area = chunks[2];
+    let count_area = chunks[2];
+    let content_area = chunks[4];
 
     // Must happen before rendering so pagination is correct
     app.update_items_per_page(content_area.height);
 
-    let mut chunk_idx: usize = 3;
+    let mut chunk_idx: usize = 5;
 
     if in_filter {
         render_filter_bar(f, app, chunks[chunk_idx], &colors);
@@ -112,11 +114,11 @@ pub fn draw(f: &mut Frame, app: &mut App) {
 
 fn render_header(f: &mut Frame, _app: &App, area: Rect, colors: &AppColors) {
     let title = if area.width >= 20 {
-        "Notification History"
+        " Notification History"
     } else if area.width >= 13 {
-        "Notifications"
+        " Notifications"
     } else {
-        "Notifs."
+        " Notifs."
     };
     f.render_widget(
         Paragraph::new(Line::from(Span::styled(
@@ -132,7 +134,7 @@ fn render_header(f: &mut Frame, _app: &App, area: Rect, colors: &AppColors) {
 
 fn render_count_bar(f: &mut Frame, app: &App, area: Rect, colors: &AppColors) {
     let count = app.display_list.len();
-    let label = format!("--- {} items ---", count);
+    let label = format!(" {} items", count);
     f.render_widget(
         Paragraph::new(Line::from(Span::styled(
             label,
