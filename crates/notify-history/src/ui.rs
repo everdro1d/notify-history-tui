@@ -133,8 +133,12 @@ fn render_header(f: &mut Frame, _app: &App, area: Rect, colors: &AppColors) {
 // ── Count bar ─────────────────────────────────────────────────────────────────
 
 fn render_count_bar(f: &mut Frame, app: &App, area: Rect, colors: &AppColors) {
-    let count = app.display_list.len();
-    let label = format!(" {} items", count);
+    let total = app.all_notifications.len();
+    let label = if app.filter_input.is_empty() {
+        format!("--- {} items ---", total)
+    } else {
+        format!("--- {} of {} items ---", app.display_list.len(), total)
+    };
     f.render_widget(
         Paragraph::new(Line::from(Span::styled(
             label,
