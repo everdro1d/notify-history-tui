@@ -170,10 +170,12 @@ The Home-Manager module:
 One notification per line, fields separated by `[*]`:
 
 ```
-<epoch_seconds>[*]<app_name>[*]<summary>[*]<body>
+<epoch_milliseconds>[*]<app_name>[*]<summary>[*]<body>
 ```
 
 Special characters (`\n`, `\t`, `\\`, etc.) in field values are escaped. The file is prepended on each new notification (newest first). Use `notify-history-ctl --clear-history` to wipe it.
+
+> **Note:** Older history files that contain whole-second timestamps (~10 digits) are automatically upgraded to milliseconds on read.
 
 ---
 
