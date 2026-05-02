@@ -5,6 +5,7 @@ use ratatui::{
     widgets::{Block, Borders, Clear, Paragraph},
     Frame,
 };
+use unicode_width::UnicodeWidthStr;
 
 use crate::app::{App, Mode};
 use crate::config::ColorConfig;
@@ -128,6 +129,16 @@ fn render_header(f: &mut Frame, _app: &App, area: Rect, colors: &AppColors) {
 
 // ── Notification list ─────────────────────────────────────────────────────────
 
+/// Append trailing spaces so the line's spans visually fill `width` columns.
+fn pad_line_to_width(mut spans: Vec<Span<'static>>, width: u16, pad_style: Style) -> Vec<Span<'static>> {
+    let current: usize = spans.iter().map(|s| s.content.width()).sum();
+    let remaining = (width as usize).saturating_sub(current);
+    if remaining > 0 {
+        spans.push(Span::styled(" ".repeat(remaining), pad_style));
+    }
+    spans
+}
+
 fn render_notifications(f: &mut Frame, app: &App, area: Rect, colors: &AppColors) {
     let mut lines: Vec<Line<'static>> = Vec::new();
 
@@ -172,7 +183,7 @@ fn render_notifications(f: &mut Frame, app: &App, area: Rect, colors: &AppColors
             let marker = if is_selected {
                 "● "
             } else if is_cursor {
-                "▶ "
+                "│ "
             } else {
                 "  "
             };
@@ -193,6 +204,9 @@ fn render_notifications(f: &mut Frame, app: &App, area: Rect, colors: &AppColors
                     match_style,
                 ));
             }
+            if is_cursor {
+                spans = pad_line_to_width(spans, area.width, normal);
+            }
             lines.push(Line::from(spans).style(normal));
 
             // ── Lines 2 … (1+body_lines): body ─────────────────────────────
@@ -202,21 +216,31 @@ fn render_notifications(f: &mut Frame, app: &App, area: Rect, colors: &AppColors
                 for line_i in 0..body_lines_count {
                     let text = body_text_lines.get(line_i).copied().unwrap_or("");
                     let midx = match_idx.body_per_line.get(line_i).unwrap_or(&empty);
-                    let mut row: Vec<Span<'static>> =
-                        vec![Span::styled("   ".to_owned(), normal)];
+                    let prefix = if is_cursor {
+                        Span::styled("│  ".to_owned(), accent)
+                    } else {
+                        Span::styled("   ".to_owned(), normal)
+                    };
+                    let mut row: Vec<Span<'static>> = vec![prefix];
                     row.extend(styled_with_matches(text, midx, normal, match_style));
+                    if is_cursor {
+                        row = pad_line_to_width(row, area.width, normal);
+                    }
                     lines.push(Line::from(row).style(normal));
                 }
             }
 
             // ── Last body line: datetime ────────────────────────────────────
-            lines.push(
-                Line::from(vec![
-                    Span::styled("   ".to_owned(), dim),
-                    Span::styled(notif.datetime_str(), dim),
-                ])
-                .style(dim),
-            );
+            let dt_prefix = if is_cursor {
+                Span::styled("│  ".to_owned(), accent)
+            } else {
+                Span::styled("   ".to_owned(), dim)
+            };
+            let mut dt_row = vec![dt_prefix, Span::styled(notif.datetime_str(), dim)];
+            if is_cursor {
+                dt_row = pad_line_to_width(dt_row, area.width, normal);
+            }
+            lines.push(Line::from(dt_row).style(dim));
 
             // ── Separator (between items) ───────────────────────────────────
             if pos + 1 < total {
