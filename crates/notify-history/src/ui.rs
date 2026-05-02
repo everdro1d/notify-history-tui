@@ -57,8 +57,9 @@ pub fn draw(f: &mut Frame, app: &mut App) {
     );
 
     let in_filter = matches!(app.mode, Mode::Filter);
+    let hints_visible = app.show_hints;
 
-    // Build layout constraints (header | count | blank | content | [filter] | dots | hints)
+    // Build layout constraints (header | count | blank | content | [filter] | dots | [hints])
     let mut constraints: Vec<Constraint> = vec![
         Constraint::Length(1), // header
         Constraint::Length(1), // count bar
@@ -69,7 +70,9 @@ pub fn draw(f: &mut Frame, app: &mut App) {
         constraints.push(Constraint::Length(1));
     }
     constraints.push(Constraint::Length(1)); // dots row (blank when 1 page)
-    constraints.push(Constraint::Length(1)); // hints bar
+    if hints_visible {
+        constraints.push(Constraint::Length(1)); // hints bar
+    }
 
     let chunks = Layout::vertical(constraints).split(area);
     let header_area = chunks[0];
@@ -88,13 +91,14 @@ pub fn draw(f: &mut Frame, app: &mut App) {
 
     let dots_area = chunks[chunk_idx];
     chunk_idx += 1;
-    let hints_area = chunks[chunk_idx];
 
     render_header(f, app, header_area, &colors);
     render_count_bar(f, app, count_area, &colors);
     render_notifications(f, app, content_area, &colors);
-    render_dots(f, app, dots_area, &colors);
-    render_hints(f, app, hints_area, &colors);
+    render_dots(f, app, dots_area, &colors, !hints_visible);
+    if hints_visible {
+        render_hints(f, app, chunks[chunk_idx], &colors);
+    }
 
     // Modal overlays
     match &app.mode {
@@ -295,7 +299,38 @@ const DOTS_MIN_WIDTH: usize = 11;
 /// Column width of each truncation marker ("NN..." / "...NN" / "99+.." / "..+99").
 const DOTS_MARKER_WIDTH: usize = 5;
 
-fn render_dots(f: &mut Frame, app: &App, area: Rect, colors: &AppColors) {
+fn render_dots(f: &mut Frame, app: &App, area: Rect, colors: &AppColors, show_help_hint: bool) {
+    // When showing the [?] hint on this row, reserve 3 cols on the right for it.
+    let help_hint_width: u16 = if show_help_hint { 3 } else { 0 };
+    let dots_area = Rect::new(
+        area.x,
+        area.y,
+        area.width.saturating_sub(help_hint_width),
+        area.height,
+    );
+
+    render_dots_content(f, app, dots_area, colors);
+
+    // Render [?] right-aligned when the hints bar is hidden.
+    if show_help_hint {
+        let hint_area = Rect::new(
+            area.x + dots_area.width,
+            area.y,
+            help_hint_width,
+            area.height,
+        );
+        f.render_widget(
+            Paragraph::new(Line::from(Span::styled(
+                "[?]".to_owned(),
+                Style::default().fg(colors.accent).bg(colors.bg),
+            )))
+            .style(Style::default().bg(colors.bg)),
+            hint_area,
+        );
+    }
+}
+
+fn render_dots_content(f: &mut Frame, app: &App, area: Rect, colors: &AppColors) {
     let n = app.num_pages();
     if n <= 1 {
         f.render_widget(
@@ -413,20 +448,38 @@ fn render_dots(f: &mut Frame, app: &App, area: Rect, colors: &AppColors) {
 
 // ── Hint bar ──────────────────────────────────────────────────────────────────
 
+// Display widths for Normal-mode hint pairs (key + description):
+//   [r] Refresh   = 3 + 10 = 13
+//   [x] Delete    = 3 +  9 = 12
+//   [c] Clear all = 3 + 12 = 15
+//   [?] Help      = 3 +  5 =  8  (never hidden)
+const HINT_W_HELP: usize = 8;
+const HINT_W_R: usize = 13;
+const HINT_W_X: usize = 12;
+const HINT_W_C: usize = 15;
+
 fn render_hints(f: &mut Frame, app: &App, area: Rect, colors: &AppColors) {
     let key_s = Style::default().fg(colors.accent).bg(colors.bg);
     let desc_s = Style::default().fg(colors.fg).bg(colors.bg);
 
-    let pairs: &[(&str, &str)] = match app.mode {
-        Mode::Normal => &[
-            ("[r]", " Refresh  "),
-            ("[x]", " Delete  "),
-            ("[c]", " Clear all  "),
-            ("[?]", " Help"),
-        ],
-        Mode::Filter => &[("[Enter]", " Confirm  "), ("[Esc]", " Cancel")],
-        Mode::Help => &[("[Esc]", " Close")],
-        _ => &[],
+    let width = area.width as usize;
+
+    let pairs: Vec<(&str, &str)> = match app.mode {
+        Mode::Normal => {
+            // Progressively hide [c], [x], [r] as the terminal narrows. [?] is never hidden.
+            let show_c = width >= HINT_W_HELP + HINT_W_R + HINT_W_X + HINT_W_C;
+            let show_x = width >= HINT_W_HELP + HINT_W_R + HINT_W_X;
+            let show_r = width >= HINT_W_HELP + HINT_W_R;
+            let mut v: Vec<(&str, &str)> = Vec::new();
+            if show_r { v.push(("[r]", " Refresh  ")); }
+            if show_x { v.push(("[x]", " Delete  ")); }
+            if show_c { v.push(("[c]", " Clear all  ")); }
+            v.push(("[?]", " Help"));
+            v
+        }
+        Mode::Filter => vec![("[Enter]", " Confirm  "), ("[Esc]", " Cancel")],
+        Mode::Help => vec![("[Esc]", " Close")],
+        _ => vec![],
     };
 
     let spans: Vec<Span<'static>> = pairs
@@ -504,6 +557,7 @@ fn render_help_popup(f: &mut Frame, area: Rect, colors: &AppColors) {
         " s        Toggle select",
         " S        Delete selected",
         " ?        Show keybinds",
+        " F1       Toggle hint bar",
         " ↑ / k    Move up",
         " ↓ / j    Move down",
         " ← / h    Previous page",

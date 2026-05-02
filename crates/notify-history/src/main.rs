@@ -137,6 +137,8 @@ fn handle_normal(code: KeyCode, _mods: KeyModifiers, app: &mut App) -> bool {
 
         KeyCode::Char('?') => app.mode = Mode::Help,
 
+        KeyCode::F(1) => app.toggle_hints(),
+
         KeyCode::Up | KeyCode::Char('k') => app.move_up(),
 
         KeyCode::Down | KeyCode::Char('j') => app.move_down(),
