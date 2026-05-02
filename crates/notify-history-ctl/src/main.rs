@@ -74,6 +74,30 @@ enum ParseState {
 }
 
 fn process_line(line: &str, state: &mut ParseState) -> Option<Notification> {
+    // ── Multi-line string continuation ───────────────────────────────────────
+    // Must be checked BEFORE the indentation guard because dbus-monitor prints
+    // continuation lines without any leading spaces.
+    if let ParseState::Collecting(ref mut s) = state {
+        if s.string_buf.is_some() {
+            if ends_with_unescaped_quote(line) {
+                let mut buf = s.string_buf.take().unwrap();
+                buf.push('\n');
+                buf.push_str(&line[..line.len() - 1]);
+                let value = escape_value(&buf);
+                assign_field(s.field_idx, &value, &mut s.app_name, &mut s.summary, &mut s.body);
+                s.field_idx += 1;
+                if s.field_idx >= 5 {
+                    return Some(finish(s));
+                }
+            } else {
+                let buf = s.string_buf.as_mut().unwrap();
+                buf.push('\n');
+                buf.push_str(line);
+            }
+            return None;
+        }
+    }
+
     // Header lines start without leading spaces
     if !line.starts_with("   ") {
         if line.contains("member=Notify") {
@@ -91,26 +115,6 @@ fn process_line(line: &str, state: &mut ParseState) -> Option<Notification> {
         ParseState::Collecting(ref mut s) => s,
         ParseState::Idle => return None,
     };
-
-    // ── Continuation of a multi-line string ──
-    if s.string_buf.is_some() {
-        if ends_with_unescaped_quote(line) {
-            let mut buf = s.string_buf.take().unwrap();
-            buf.push('\n');
-            buf.push_str(&line[..line.len() - 1]);
-            let value = escape_value(&buf);
-            assign_field(s.field_idx, &value, &mut s.app_name, &mut s.summary, &mut s.body);
-            s.field_idx += 1;
-            if s.field_idx >= 5 {
-                return Some(finish(s));
-            }
-        } else {
-            let buf = s.string_buf.as_mut().unwrap();
-            buf.push('\n');
-            buf.push_str(line);
-        }
-        return None;
-    }
 
     if s.field_idx >= 5 {
         return None;

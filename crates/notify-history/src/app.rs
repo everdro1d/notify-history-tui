@@ -134,7 +134,11 @@ impl App {
 
     pub fn update_items_per_page(&mut self, content_height: u16) {
         let rows = self.rows_per_notif.max(1);
-        let new_count = (content_height as usize / rows).max(1);
+        // For N items each `item_rows` tall with N-1 separators, total height is
+        // N*(item_rows+1)-1.  Solving gives N = (H+1)/(item_rows+1) where
+        // rows_per_notif already includes the separator, so the formula is simply
+        // (content_height + 1) / rows_per_notif.
+        let new_count = ((content_height as usize + 1) / rows).max(1);
         if new_count != self.items_per_page {
             self.items_per_page = new_count;
             self.clamp_cursor();
