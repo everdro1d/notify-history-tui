@@ -188,17 +188,27 @@ fn is_primitive_field(trimmed: &str) -> bool {
 fn extract_timestamp(line: &str) -> i64 {
     for token in line.split_whitespace() {
         if let Some(ts_str) = token.strip_prefix("time=") {
-            if let Some(secs_str) = ts_str.split('.').next() {
-                if let Ok(ts) = secs_str.parse::<i64>() {
-                    return ts;
-                }
+            let mut parts = ts_str.splitn(2, '.');
+            let secs_str = parts.next().unwrap_or("");
+            let frac_str = parts.next().unwrap_or("0");
+            if let Ok(secs) = secs_str.parse::<i64>() {
+                return secs * 1000 + frac_to_ms(frac_str);
             }
         }
     }
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs() as i64)
+        .map(|d| d.as_millis() as i64)
         .unwrap_or(0)
+}
+
+/// Convert the fractional-seconds string (e.g. "123456" from dbus-monitor's
+/// microsecond-precision `time=` field) to whole milliseconds.
+fn frac_to_ms(frac: &str) -> i64 {
+    // Pad or truncate to exactly 3 significant digits then parse.
+    let truncated = &frac[..frac.len().min(3)];
+    let padded = format!("{:0<3}", truncated);
+    padded.parse::<i64>().unwrap_or(0)
 }
 
 /// Escape special characters so each notification fits on a single file line.
