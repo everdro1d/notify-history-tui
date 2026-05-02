@@ -20,7 +20,12 @@ impl Notification {
         if parts.len() < 4 {
             return None;
         }
-        let timestamp = parts[0].trim().parse::<i64>().ok()?;
+        // Timestamps written by older daemon versions are whole seconds (~10
+        // digits).  Newer entries are milliseconds (~13 digits).  Normalise
+        // everything to milliseconds so datetime_str can show sub-second
+        // precision.
+        let raw: i64 = parts[0].trim().parse().ok()?;
+        let timestamp = if raw < 100_000_000_000 { raw * 1000 } else { raw };
         Some(Self {
             timestamp,
             app_name: unescape_value(parts[1]),
@@ -50,8 +55,8 @@ impl Notification {
 
     /// Human-readable timestamp string.
     pub fn datetime_str(&self) -> String {
-        match Local.timestamp_opt(self.timestamp, 0) {
-            chrono::LocalResult::Single(dt) => dt.format("%Y-%m-%d %H:%M:%S").to_string(),
+        match Local.timestamp_millis_opt(self.timestamp) {
+            chrono::LocalResult::Single(dt) => dt.format("%Y-%m-%d %H:%M:%S%.3f").to_string(),
             _ => format!("ts:{}", self.timestamp),
         }
     }

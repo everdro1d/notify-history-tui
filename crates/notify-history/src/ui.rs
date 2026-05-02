@@ -58,10 +58,10 @@ pub fn draw(f: &mut Frame, app: &mut App) {
 
     let in_filter = matches!(app.mode, Mode::Filter);
 
-    // Build layout constraints (header | gap | content | [filter] | dots | hints)
+    // Build layout constraints (header | count | content | [filter] | dots | hints)
     let mut constraints: Vec<Constraint> = vec![
         Constraint::Length(1), // header
-        Constraint::Length(1), // blank gap below header
+        Constraint::Length(1), // count bar
         Constraint::Fill(1),   // notification list
     ];
     if in_filter {
@@ -72,7 +72,7 @@ pub fn draw(f: &mut Frame, app: &mut App) {
 
     let chunks = Layout::vertical(constraints).split(area);
     let header_area = chunks[0];
-    // chunks[1] is the blank gap — nothing rendered there
+    let count_area = chunks[1];
     let content_area = chunks[2];
 
     // Must happen before rendering so pagination is correct
@@ -90,6 +90,7 @@ pub fn draw(f: &mut Frame, app: &mut App) {
     let hints_area = chunks[chunk_idx];
 
     render_header(f, app, header_area, &colors);
+    render_count_bar(f, app, count_area, &colors);
     render_notifications(f, app, content_area, &colors);
     render_dots(f, app, dots_area, &colors);
     render_hints(f, app, hints_area, &colors);
@@ -121,6 +122,24 @@ fn render_header(f: &mut Frame, _app: &App, area: Rect, colors: &AppColors) {
         Paragraph::new(Line::from(Span::styled(
             title.to_owned(),
             Style::default().fg(colors.accent).bg(colors.bg),
+        )))
+        .style(Style::default().bg(colors.bg)),
+        area,
+    );
+}
+
+// ── Count bar ─────────────────────────────────────────────────────────────────
+
+fn render_count_bar(f: &mut Frame, app: &App, area: Rect, colors: &AppColors) {
+    let count = app.display_list.len();
+    let label = format!("--- {} items ---", count);
+    f.render_widget(
+        Paragraph::new(Line::from(Span::styled(
+            label,
+            Style::default()
+                .fg(colors.fg)
+                .bg(colors.bg)
+                .add_modifier(Modifier::DIM),
         )))
         .style(Style::default().bg(colors.bg)),
         area,
