@@ -10,3 +10,14 @@ windows:
       - nvim .
   - term:
   - git-lg: lazygit
+  - running:
+      layout: aca9,136x35,0,0{27x35,0,0,4,72x35,28,0,5,35x35,101,0,6}
+      panes:
+          - ctl:
+              - cd ./target/release/
+              - ./notify-history-ctl
+          - notify:
+              - cd ./target/release/
+          - gui:
+              - cd ./target/release/
+              - ./notify-history
