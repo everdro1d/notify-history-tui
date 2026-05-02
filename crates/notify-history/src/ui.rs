@@ -58,10 +58,9 @@ pub fn draw(f: &mut Frame, app: &mut App) {
 
     let in_filter = matches!(app.mode, Mode::Filter);
 
-    // Build layout constraints (header | count | content | [filter] | dots | hints)
+    // Build layout constraints (header | count | blank | content | [filter] | dots | hints)
     let mut constraints: Vec<Constraint> = vec![
         Constraint::Length(1), // header
-        Constraint::Length(1), // blank gap below header
         Constraint::Length(1), // count bar
         Constraint::Length(1), // blank gap below count bar
         Constraint::Fill(1),   // notification list
@@ -74,13 +73,13 @@ pub fn draw(f: &mut Frame, app: &mut App) {
 
     let chunks = Layout::vertical(constraints).split(area);
     let header_area = chunks[0];
-    let count_area = chunks[2];
-    let content_area = chunks[4];
+    let count_area = chunks[1];
+    let content_area = chunks[3];
 
     // Must happen before rendering so pagination is correct
     app.update_items_per_page(content_area.height);
 
-    let mut chunk_idx: usize = 5;
+    let mut chunk_idx: usize = 4;
 
     if in_filter {
         render_filter_bar(f, app, chunks[chunk_idx], &colors);
@@ -113,9 +112,9 @@ pub fn draw(f: &mut Frame, app: &mut App) {
 // ── Header ────────────────────────────────────────────────────────────────────
 
 fn render_header(f: &mut Frame, _app: &App, area: Rect, colors: &AppColors) {
-    let title = if area.width >= 20 {
+    let title = if area.width >= 21 {
         " Notification History"
-    } else if area.width >= 13 {
+    } else if area.width >= 14 {
         " Notifications"
     } else {
         " Notifs."
@@ -133,11 +132,16 @@ fn render_header(f: &mut Frame, _app: &App, area: Rect, colors: &AppColors) {
 // ── Count bar ─────────────────────────────────────────────────────────────────
 
 fn render_count_bar(f: &mut Frame, app: &App, area: Rect, colors: &AppColors) {
+    let line = if area.width >= 21 {
+        "─── "
+    } else {
+        ""
+    };
     let total = app.all_notifications.len();
     let label = if app.filter_input.is_empty() {
-        format!("--- {} items ---", total)
+        format!(" {}{} items {}", line, total, line)
     } else {
-        format!("--- {} of {} items ---", app.display_list.len(), total)
+        format!(" {}{} of {} {}", line, app.display_list.len(), total, line)
     };
     f.render_widget(
         Paragraph::new(Line::from(Span::styled(
