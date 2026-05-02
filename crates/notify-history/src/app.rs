@@ -58,6 +58,10 @@ pub struct App {
     /// Updated every frame by `update_items_per_page`.
     pub effective_body_lines: usize,
 
+    /// Whether the hint bar at the bottom is shown. Initialized from config, toggleable
+    /// per-session with F1.
+    pub show_hints: bool,
+
     filter: Filter,
 }
 
@@ -66,6 +70,7 @@ impl App {
         let history_file = config.history_file();
         let body_lines = config.display.body_lines as usize;
         let rows_per_notif = 3 + body_lines;
+        let show_hints = config.display.show_hints;
         let mut app = Self {
             all_notifications: Vec::new(),
             display_list: Vec::new(),
@@ -79,6 +84,7 @@ impl App {
             config,
             rows_per_notif,
             effective_body_lines: body_lines,
+            show_hints,
             filter: Filter::new(),
         };
         app.load_notifications();
@@ -259,6 +265,13 @@ impl App {
                 self.multi_selected.insert(idx);
             }
         }
+    }
+
+    // ── Session toggles ───────────────────────────────────────────────────────
+
+    /// Toggle the hint bar visibility for the current session (not persisted).
+    pub fn toggle_hints(&mut self) {
+        self.show_hints = !self.show_hints;
     }
 
     // ── Mutations ─────────────────────────────────────────────────────────────

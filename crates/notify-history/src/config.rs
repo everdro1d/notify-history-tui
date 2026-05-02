@@ -10,6 +10,9 @@ pub struct DisplayConfig {
     /// Number of body lines shown per notification (0–4)
     #[serde(default = "default_body_lines")]
     pub body_lines: u8,
+    /// Whether to show the keybind hint bar at the bottom (can be toggled per-session with F1)
+    #[serde(default = "default_show_hints")]
+    pub show_hints: bool,
 }
 
 fn default_show_app() -> bool {
@@ -18,12 +21,16 @@ fn default_show_app() -> bool {
 fn default_body_lines() -> u8 {
     3
 }
+fn default_show_hints() -> bool {
+    true
+}
 
 impl Default for DisplayConfig {
     fn default() -> Self {
         Self {
             show_app: default_show_app(),
             body_lines: default_body_lines(),
+            show_hints: default_show_hints(),
         }
     }
 }
