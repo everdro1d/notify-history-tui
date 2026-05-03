@@ -647,10 +647,24 @@ fn render_filter_bar(f: &mut Frame, app: &App, area: Rect, colors: &AppColors) {
 // ── Confirm dialog ────────────────────────────────────────────────────────────
 
 fn render_confirm_dialog(f: &mut Frame, area: Rect, colors: &AppColors, message: &str) {
-    let full_msg = format!("{} — [y/Enter] Yes  [n/Esc] No", message);
-    let inner_width = full_msg.len() as u16 + 2;
-    let popup_w = (inner_width + 2).min(area.width.saturating_sub(2));
-    let popup_h = 3u16;
+    let buttons = "[y/Enter] Yes  [n/Esc] No";
+    let full_msg = format!("{} \u{2014} {}", message, buttons);
+
+    // Prefer single-line layout; fall back to two lines on narrow terminals.
+    let (content_lines, popup_h): (Vec<String>, u16) =
+        if full_msg.width() as u16 + 2 <= area.width {
+            (vec![full_msg], 3)
+        } else {
+            (vec![message.to_string(), buttons.to_string()], 4)
+        };
+
+    let content_w = content_lines.iter().map(|l| l.width()).max().unwrap_or(0) as u16;
+    let popup_w = (content_w + 2).min(area.width);
+    let popup_h = popup_h.min(area.height);
+    if popup_w < 2 || popup_h < 2 {
+        return;
+    }
+
     let popup_x = area.x + area.width.saturating_sub(popup_w) / 2;
     let popup_y = area.y + area.height.saturating_sub(popup_h) / 2;
     let popup = Rect::new(popup_x, popup_y, popup_w, popup_h);
@@ -663,8 +677,14 @@ fn render_confirm_dialog(f: &mut Frame, area: Rect, colors: &AppColors, message:
 
     f.render_widget(Clear, popup);
     f.render_widget(block, popup);
+
+    let text: Vec<Line<'static>> = content_lines
+        .into_iter()
+        .take(inner.height as usize)
+        .map(|l| Line::from(Span::styled(l, Style::default().fg(colors.fg).bg(colors.bg))))
+        .collect();
     f.render_widget(
-        Paragraph::new(full_msg).style(Style::default().fg(colors.fg).bg(colors.bg)),
+        Paragraph::new(Text::from(text)).style(Style::default().bg(colors.bg)),
         inner,
     );
 }
@@ -694,8 +714,11 @@ fn render_help_popup(f: &mut Frame, area: Rect, colors: &AppColors) {
         " Esc      Close help",
     ];
 
-    let popup_w: u16 = 32;
+    let popup_w: u16 = 32u16.min(area.width);
     let popup_h: u16 = (rows.len() as u16 + 2).min(area.height.saturating_sub(2));
+    if popup_w < 2 || popup_h < 2 {
+        return;
+    }
     let popup_x = area.x + area.width.saturating_sub(popup_w) / 2;
     let popup_y = area.y + area.height.saturating_sub(popup_h) / 2;
     let popup = Rect::new(popup_x, popup_y, popup_w, popup_h);
