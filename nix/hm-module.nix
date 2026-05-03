@@ -24,6 +24,7 @@ let
     display = {
       show_app = cfg.showApp;
       body_lines = cfg.bodyLines;
+      refresh_time = cfg.refreshTime;
     };
     persistence = {
       enabled = cfg.persistence;
@@ -65,6 +66,12 @@ in
       type = types.ints.between 0 4;
       default = 4;
       description = "Number of body lines displayed per notification (0–4).";
+    };
+
+    refreshTime = mkOption {
+      type = types.ints.unsigned;
+      default = 5;
+      description = "Auto-refresh interval in seconds (0 = disabled).";
     };
 
     persistence = mkOption {
