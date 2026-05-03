@@ -160,6 +160,53 @@ fn render_count_bar(f: &mut Frame, app: &App, area: Rect, colors: &AppColors) {
     );
 }
 
+// ── Text layout helpers ───────────────────────────────────────────────────────
+
+/// Truncate `text` to at most `max_cols` display columns (char-level).
+fn truncate_to_cols(text: &str, max_cols: usize) -> String {
+    let mut out = String::new();
+    let mut width: usize = 0;
+    for ch in text.chars() {
+        let ch_w = unicode_width::UnicodeWidthChar::width(ch).unwrap_or(0);
+        if width + ch_w > max_cols {
+            break;
+        }
+        out.push(ch);
+        width += ch_w;
+    }
+    out
+}
+
+/// Wrap `text` into sub-lines that each fit within `max_cols` display columns.
+/// Returns a list of `(sub_line_text, char_start_offset_in_source)`.
+/// An empty `text` produces a single entry `("", 0)`.
+fn wrap_to_cols(text: &str, max_cols: usize) -> Vec<(String, usize)> {
+    if max_cols == 0 {
+        return vec![(String::new(), 0)];
+    }
+    let mut result: Vec<(String, usize)> = Vec::new();
+    let mut current = String::new();
+    let mut current_width: usize = 0;
+    let mut current_char_start: usize = 0;
+
+    for (char_idx, ch) in text.chars().enumerate() {
+        let ch_w = unicode_width::UnicodeWidthChar::width(ch).unwrap_or(0);
+        if current_width + ch_w > max_cols && !current.is_empty() {
+            result.push((current.clone(), current_char_start));
+            current.clear();
+            current_width = 0;
+            current_char_start = char_idx;
+        }
+        current.push(ch);
+        current_width += ch_w;
+    }
+    // Always push the last (or only) sub-line, even when text is empty.
+    if !current.is_empty() || result.is_empty() {
+        result.push((current, current_char_start));
+    }
+    result
+}
+
 // ── Notification list ─────────────────────────────────────────────────────────
 
 /// Append trailing spaces so the line's spans visually fill `width` columns.
@@ -221,21 +268,58 @@ fn render_notifications(f: &mut Frame, app: &App, area: Rect, colors: &AppColors
                 "  "
             };
 
+            // Available columns for text after the 2-col marker prefix.
+            let title_available = (area.width as usize).saturating_sub(2);
+            let summary_w = notif.summary.width();
+
             let mut spans: Vec<Span<'static>> = vec![Span::styled(marker.to_owned(), accent)];
-            spans.extend(styled_with_matches(
-                &notif.summary,
-                &match_idx.summary,
-                normal,
-                match_style,
-            ));
             if show_app && !notif.app_name.is_empty() {
-                spans.push(Span::styled(" — ".to_owned(), normal));
-                spans.extend(styled_with_matches(
-                    &notif.app_name,
-                    &match_idx.app_name,
-                    accent,
-                    match_style,
-                ));
+                let sep_w: usize = 3; // " — "
+                let app_w = notif.app_name.width();
+                if summary_w + sep_w + app_w <= title_available {
+                    // Both summary and app name fit.
+                    spans.extend(styled_with_matches(
+                        &notif.summary,
+                        &match_idx.summary,
+                        normal,
+                        match_style,
+                    ));
+                    spans.push(Span::styled(" — ".to_owned(), normal));
+                    spans.extend(styled_with_matches(
+                        &notif.app_name,
+                        &match_idx.app_name,
+                        accent,
+                        match_style,
+                    ));
+                } else if summary_w <= title_available {
+                    // Only summary fits (drop app name).
+                    spans.extend(styled_with_matches(
+                        &notif.summary,
+                        &match_idx.summary,
+                        normal,
+                        match_style,
+                    ));
+                } else {
+                    // Truncate summary with "...".
+                    let truncated = truncate_to_cols(&notif.summary, title_available.saturating_sub(3));
+                    let kept = truncated.chars().count();
+                    let filtered: Vec<usize> = match_idx.summary.iter().copied().filter(|&i| i < kept).collect();
+                    spans.extend(styled_with_matches(&format!("{truncated}..."), &filtered, normal, match_style));
+                }
+            } else {
+                if summary_w <= title_available {
+                    spans.extend(styled_with_matches(
+                        &notif.summary,
+                        &match_idx.summary,
+                        normal,
+                        match_style,
+                    ));
+                } else {
+                    let truncated = truncate_to_cols(&notif.summary, title_available.saturating_sub(3));
+                    let kept = truncated.chars().count();
+                    let filtered: Vec<usize> = match_idx.summary.iter().copied().filter(|&i| i < kept).collect();
+                    spans.extend(styled_with_matches(&format!("{truncated}..."), &filtered, normal, match_style));
+                }
             }
             if is_cursor {
                 spans = pad_line_to_width(spans, area.width, normal);
@@ -244,22 +328,53 @@ fn render_notifications(f: &mut Frame, app: &App, area: Rect, colors: &AppColors
 
             // ── Lines 2 … (1+body_lines): body ─────────────────────────────
             if body_lines_count > 0 {
-                let body_text_lines: Vec<String> = notif
-                    .display_body(app.config.display.escape_body)
-                    .lines()
-                    .map(str::to_owned)
-                    .collect();
+                // Available cols for body text after the 3-col prefix ("│  " / "   ").
+                let body_available = (area.width as usize).saturating_sub(3).max(1);
+                let body_display = notif.display_body(app.config.display.escape_body);
+                let source_lines: Vec<&str> = body_display.lines().collect();
                 let empty: Vec<usize> = Vec::new();
-                for line_i in 0..body_lines_count {
-                    let text = body_text_lines.get(line_i).map(String::as_str).unwrap_or("");
-                    let midx = match_idx.body_per_line.get(line_i).unwrap_or(&empty);
+
+                // Flatten all source lines into wrapped sub-lines, carrying
+                // char-start offsets so match indices can be remapped.
+                let mut all_sub_lines: Vec<(String, Vec<usize>)> = Vec::new();
+                for (src_i, &src_line) in source_lines.iter().enumerate() {
+                    let src_indices = match_idx.body_per_line.get(src_i).unwrap_or(&empty);
+                    for (sub_text, char_start) in wrap_to_cols(src_line, body_available) {
+                        let sub_len = sub_text.chars().count();
+                        let remapped: Vec<usize> = src_indices
+                            .iter()
+                            .copied()
+                            .filter(|&i| i >= char_start && i < char_start + sub_len)
+                            .map(|i| i - char_start)
+                            .collect();
+                        all_sub_lines.push((sub_text, remapped));
+                    }
+                }
+
+                let has_overflow = all_sub_lines.len() > body_lines_count;
+
+                for slot in 0..body_lines_count {
                     let prefix = if is_cursor {
                         Span::styled("│  ".to_owned(), accent)
                     } else {
                         Span::styled("   ".to_owned(), normal)
                     };
                     let mut row: Vec<Span<'static>> = vec![prefix];
-                    row.extend(styled_with_matches(text, midx, normal, match_style));
+
+                    if let Some((sub_text, sub_indices)) = all_sub_lines.get(slot) {
+                        let is_last_slot = slot + 1 == body_lines_count;
+                        if is_last_slot && has_overflow {
+                            // More content follows — truncate and append "...".
+                            let truncated = truncate_to_cols(sub_text, body_available.saturating_sub(3));
+                            let kept = truncated.chars().count();
+                            let filtered: Vec<usize> = sub_indices.iter().copied().filter(|&i| i < kept).collect();
+                            row.extend(styled_with_matches(&format!("{truncated}..."), &filtered, normal, match_style));
+                        } else {
+                            row.extend(styled_with_matches(sub_text, sub_indices, normal, match_style));
+                        }
+                    }
+                    // Empty slot: row already contains just the prefix span.
+
                     if is_cursor {
                         row = pad_line_to_width(row, area.width, normal);
                     }
@@ -268,12 +383,13 @@ fn render_notifications(f: &mut Frame, app: &App, area: Rect, colors: &AppColors
             }
 
             // ── Last body line: datetime ────────────────────────────────────
+            let dt_available = (area.width as usize).saturating_sub(3);
             let dt_prefix = if is_cursor {
                 Span::styled("│  ".to_owned(), accent)
             } else {
                 Span::styled("   ".to_owned(), dim)
             };
-            let mut dt_row = vec![dt_prefix, Span::styled(notif.datetime_str(), dim)];
+            let mut dt_row = vec![dt_prefix, Span::styled(notif.datetime_str_for_width(dt_available), dim)];
             if is_cursor {
                 dt_row = pad_line_to_width(dt_row, area.width, normal);
             }

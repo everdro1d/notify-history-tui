@@ -324,7 +324,6 @@ impl App {
         let body_lines: Vec<Vec<usize>> = notif
             .display_body(self.config.display.escape_body)
             .lines()
-            .take(self.effective_body_lines)
             .map(|line| self.filter.match_indices(q, line).unwrap_or_default())
             .collect();
 
