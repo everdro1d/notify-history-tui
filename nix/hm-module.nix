@@ -25,6 +25,7 @@ let
       show_app = cfg.showApp;
       body_lines = cfg.bodyLines;
       refresh_time = cfg.refreshTime;
+      escape_body = cfg.escapeBody;
     };
     persistence = {
       enabled = cfg.persistence;
@@ -72,6 +73,16 @@ in
       type = types.ints.unsigned;
       default = 5;
       description = "Auto-refresh interval in seconds (0 = disabled).";
+    };
+
+    escapeBody = mkOption {
+      type = types.bool;
+      default = false;
+      description = ''
+        When false (default), literal escape sequences such as <code>\n</code>
+        and <code>\t</code> in notification bodies are expanded to real
+        characters for display.  When true, those sequences are shown verbatim.
+      '';
     };
 
     persistence = mkOption {

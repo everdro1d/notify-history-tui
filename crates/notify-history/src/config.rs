@@ -16,6 +16,10 @@ pub struct DisplayConfig {
     /// Automatically refresh the notification list every N seconds (0 = disabled)
     #[serde(default = "default_refresh_time")]
     pub refresh_time: u64,
+    /// When true, show literal escape sequences (e.g. `\n`) in the notification body.
+    /// When false (default), convert them to real characters for display.
+    #[serde(default = "default_escape_body")]
+    pub escape_body: bool,
 }
 
 fn default_show_app() -> bool {
@@ -30,6 +34,9 @@ fn default_show_hints() -> bool {
 fn default_refresh_time() -> u64 {
     5
 }
+fn default_escape_body() -> bool {
+    false
+}
 
 impl Default for DisplayConfig {
     fn default() -> Self {
@@ -38,6 +45,7 @@ impl Default for DisplayConfig {
             body_lines: default_body_lines(),
             show_hints: default_show_hints(),
             refresh_time: default_refresh_time(),
+            escape_body: default_escape_body(),
         }
     }
 }

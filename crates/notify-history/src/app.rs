@@ -322,7 +322,7 @@ impl App {
         let notif = &self.all_notifications[notif_idx];
         let q = &self.filter_input;
         let body_lines: Vec<Vec<usize>> = notif
-            .body
+            .display_body(self.config.display.escape_body)
             .lines()
             .take(self.effective_body_lines)
             .map(|line| self.filter.match_indices(q, line).unwrap_or_default())
