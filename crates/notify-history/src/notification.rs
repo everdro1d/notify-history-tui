@@ -53,10 +53,29 @@ impl Notification {
         format!("{} {} {}", self.summary, self.app_name, self.body)
     }
 
-    /// Human-readable timestamp string.
-    pub fn datetime_str(&self) -> String {
+    /// Human-readable timestamp string, choosing the longest format that fits
+    /// within `max_cols` display columns.  Formats are tried longest-first,
+    /// progressively shedding year, fractional seconds, month, then day.
+    /// `HH:MM:SS` (8 cols) is the minimum; it is returned even if `max_cols < 8`.
+    pub fn datetime_str_for_width(&self, max_cols: usize) -> String {
         match Local.timestamp_millis_opt(self.timestamp) {
-            chrono::LocalResult::Single(dt) => dt.format("%Y-%m-%d %H:%M:%S%.3f").to_string(),
+            chrono::LocalResult::Single(dt) => {
+                // (format_string, minimum_columns_needed)
+                const FORMATS: &[(&str, usize)] = &[
+                    ("%Y-%m-%d %H:%M:%S%.3f", 23),  // 2024-01-15 14:30:45.123
+                    ("%m-%d %H:%M:%S%.3f", 18),     // 01-15 14:30:45.123
+                    ("%m-%d %H:%M:%S", 14),        // 01-15 14:30:45
+                    ("%d %H:%M:%S", 11),            // 15 14:30:45
+                    ("%H:%M:%S", 8),                // 14:30:45
+                ];
+                for &(fmt, min_cols) in FORMATS {
+                    if max_cols >= min_cols {
+                        return dt.format(fmt).to_string();
+                    }
+                }
+                // Fallback: return minimum even if it does not technically fit.
+                dt.format("%H:%M:%S").to_string()
+            }
             _ => format!("ts:{}", self.timestamp),
         }
     }
