@@ -39,6 +39,9 @@ impl Default for DisplayConfig {
 pub struct PersistenceConfig {
     #[serde(default)]
     pub enabled: bool,
+    /// Maximum number of notifications to keep in history (0 = unlimited)
+    #[serde(default)]
+    pub max_history: usize,
 }
 
 #[derive(Debug, Clone, Deserialize)]

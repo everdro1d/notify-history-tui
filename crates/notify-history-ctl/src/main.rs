@@ -228,7 +228,7 @@ fn escape_value(s: &str) -> String {
     out
 }
 
-fn prepend_to_file(path: &PathBuf, content: &str) -> io::Result<()> {
+fn prepend_to_file(path: &PathBuf, content: &str, max_history: usize) -> io::Result<()> {
     let existing = if path.exists() {
         fs::read_to_string(path)?
     } else {
@@ -236,24 +236,44 @@ fn prepend_to_file(path: &PathBuf, content: &str) -> io::Result<()> {
     };
     let mut file = File::create(path)?;
     writeln!(file, "{}", content)?;
-    file.write_all(existing.as_bytes())?;
+    if max_history > 0 {
+        // Write only up to max_history - 1 existing lines (the new line already counts as 1)
+        let mut written = 1usize;
+        for line in existing.lines() {
+            if written >= max_history {
+                break;
+            }
+            writeln!(file, "{}", line)?;
+            written += 1;
+        }
+    } else {
+        file.write_all(existing.as_bytes())?;
+    }
     Ok(())
 }
 
 // ── Config helper ─────────────────────────────────────────────────────────────
 
-fn get_history_file() -> PathBuf {
+fn get_config_values() -> (PathBuf, usize) {
     if let Some(home) = dirs::home_dir() {
         let config = home.join(".config").join("notify-history").join("config.toml");
         if let Ok(content) = fs::read_to_string(&config) {
-            if is_persistence_enabled(&content) {
+            let history_file = if is_persistence_enabled(&content) {
                 let state_dir = dirs::state_dir()
                     .unwrap_or_else(|| home.join(".local").join("state"));
-                return state_dir.join("notify-history").join("notification-history");
-            }
+                state_dir.join("notify-history").join("notification-history")
+            } else {
+                PathBuf::from(DEFAULT_HISTORY_FILE)
+            };
+            let max_history = get_max_history(&content);
+            return (history_file, max_history);
         }
     }
-    PathBuf::from(DEFAULT_HISTORY_FILE)
+    (PathBuf::from(DEFAULT_HISTORY_FILE), 0)
+}
+
+fn get_history_file() -> PathBuf {
+    get_config_values().0
 }
 
 fn is_persistence_enabled(content: &str) -> bool {
@@ -272,6 +292,24 @@ fn is_persistence_enabled(content: &str) -> bool {
         }
     }
     false
+}
+
+fn get_max_history(content: &str) -> usize {
+    let mut in_section = false;
+    for line in content.lines() {
+        let t = line.trim();
+        if t == "[persistence]" {
+            in_section = true;
+        } else if t.starts_with('[') {
+            in_section = false;
+        } else if in_section {
+            let norm = t.replace(' ', "");
+            if let Some(val) = norm.strip_prefix("max_history=") {
+                return val.parse::<usize>().unwrap_or(0);
+            }
+        }
+    }
+    0
 }
 
 // ── Actions ───────────────────────────────────────────────────────────────────
@@ -317,7 +355,7 @@ fn run_daemon() {
         eprintln!("Warning: could not write PID file: {}", e);
     }
 
-    let history_file = get_history_file();
+    let (history_file, max_history) = get_config_values();
     if let Some(parent) = history_file.parent() {
         let _ = fs::create_dir_all(parent);
     }
@@ -359,7 +397,7 @@ fn run_daemon() {
         match line_result {
             Ok(line) => {
                 if let Some(notif) = process_line(&line, &mut state) {
-                    if let Err(e) = prepend_to_file(&history_file, &notif.to_line()) {
+                    if let Err(e) = prepend_to_file(&history_file, &notif.to_line(), max_history) {
                         eprintln!("Failed to write notification: {}", e);
                     }
                 }
