@@ -244,10 +244,14 @@ fn render_notifications(f: &mut Frame, app: &App, area: Rect, colors: &AppColors
 
             // ── Lines 2 … (1+body_lines): body ─────────────────────────────
             if body_lines_count > 0 {
-                let body_text_lines: Vec<&str> = notif.body.lines().collect();
+                let body_text_lines: Vec<String> = notif
+                    .display_body(app.config.display.escape_body)
+                    .lines()
+                    .map(str::to_owned)
+                    .collect();
                 let empty: Vec<usize> = Vec::new();
                 for line_i in 0..body_lines_count {
-                    let text = body_text_lines.get(line_i).copied().unwrap_or("");
+                    let text = body_text_lines.get(line_i).map(String::as_str).unwrap_or("");
                     let midx = match_idx.body_per_line.get(line_i).unwrap_or(&empty);
                     let prefix = if is_cursor {
                         Span::styled("│  ".to_owned(), accent)

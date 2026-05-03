@@ -60,6 +60,23 @@ impl Notification {
             _ => format!("ts:{}", self.timestamp),
         }
     }
+
+    /// Return the body text formatted for display.
+    ///
+    /// When `escape` is `false` (the default), literal two-character escape
+    /// sequences such as `\n` and `\t` that appear in the stored body are
+    /// expanded to real control characters so they render as formatting in the
+    /// TUI.  When `escape` is `true` the body is returned unchanged, so those
+    /// sequences are visible as-is.
+    pub fn display_body(&self, escape: bool) -> String {
+        if escape {
+            self.body.clone()
+        } else {
+            self.body
+                .replace("\\n", "\n")
+                .replace("\\t", "\t")
+        }
+    }
 }
 
 // ── Escape / unescape ─────────────────────────────────────────────────────────
