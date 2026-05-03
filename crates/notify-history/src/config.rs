@@ -43,6 +43,7 @@ impl Default for DisplayConfig {
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
+#[allow(dead_code)]
 pub struct PersistenceConfig {
     #[serde(default)]
     pub enabled: bool,
