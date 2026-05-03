@@ -238,13 +238,8 @@ fn prepend_to_file(path: &PathBuf, content: &str, max_history: usize) -> io::Res
     writeln!(file, "{}", content)?;
     if max_history > 0 {
         // Write only up to max_history - 1 existing lines (the new line already counts as 1)
-        let mut written = 1usize;
-        for line in existing.lines() {
-            if written >= max_history {
-                break;
-            }
+        for line in existing.lines().take(max_history) {
             writeln!(file, "{}", line)?;
-            written += 1;
         }
     } else {
         file.write_all(existing.as_bytes())?;

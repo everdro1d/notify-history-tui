@@ -85,11 +85,10 @@ fn run_event_loop(
 
         if got_event {
             match event::read()? {
-                Event::Key(key) if key.kind == KeyEventKind::Press => {
-                    if handle_key(key.code, key.modifiers, app) {
+                Event::Key(key) if key.kind == KeyEventKind::Press
+                    && handle_key(key.code, key.modifiers, app) => {
                         break;
                     }
-                }
                 Event::Resize(_, _) => {
                     // Handled automatically on the next draw call
                 }
@@ -157,11 +156,10 @@ fn handle_normal(code: KeyCode, _mods: KeyModifiers, app: &mut App) -> bool {
 
         KeyCode::Char('s') => app.toggle_select_current(),
 
-        KeyCode::Char('S') => {
-            if !app.multi_selected.is_empty() {
+        KeyCode::Char('S')
+            if !app.multi_selected.is_empty() => {
                 app.mode = Mode::ConfirmClearSelected;
             }
-        }
 
         KeyCode::Char('?') => app.mode = Mode::Help,
 
