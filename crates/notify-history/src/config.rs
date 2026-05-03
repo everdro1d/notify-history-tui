@@ -13,6 +13,9 @@ pub struct DisplayConfig {
     /// Whether to show the keybind hint bar at the bottom (can be toggled per-session with F1)
     #[serde(default = "default_show_hints")]
     pub show_hints: bool,
+    /// Automatically refresh the notification list every N seconds (0 = disabled)
+    #[serde(default = "default_refresh_time")]
+    pub refresh_time: u64,
 }
 
 fn default_show_app() -> bool {
@@ -24,6 +27,9 @@ fn default_body_lines() -> u8 {
 fn default_show_hints() -> bool {
     true
 }
+fn default_refresh_time() -> u64 {
+    5
+}
 
 impl Default for DisplayConfig {
     fn default() -> Self {
@@ -31,6 +37,7 @@ impl Default for DisplayConfig {
             show_app: default_show_app(),
             body_lines: default_body_lines(),
             show_hints: default_show_hints(),
+            refresh_time: default_refresh_time(),
         }
     }
 }
