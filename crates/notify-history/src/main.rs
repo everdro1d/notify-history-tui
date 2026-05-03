@@ -7,6 +7,7 @@ use crossterm::{
 };
 use ratatui::{backend::CrosstermBackend, Terminal};
 use std::io;
+use std::time::Duration;
 
 mod app;
 mod config;
@@ -64,19 +65,46 @@ fn run_event_loop(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
     app: &mut App,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    let refresh_time = app.config.display.refresh_time;
+    let poll_timeout = if refresh_time > 0 {
+        Some(Duration::from_secs(refresh_time))
+    } else {
+        None
+    };
+
     loop {
         terminal.draw(|f| ui::draw(f, app))?;
 
-        match event::read()? {
-            Event::Key(key) if key.kind == KeyEventKind::Press => {
-                if handle_key(key.code, key.modifiers, app) {
-                    break;
+        let got_event = match poll_timeout {
+            Some(timeout) => event::poll(timeout)?,
+            None => {
+                // No auto-refresh: block until an event arrives
+                event::poll(Duration::MAX)?
+            }
+        };
+
+        if got_event {
+            match event::read()? {
+                Event::Key(key) if key.kind == KeyEventKind::Press => {
+                    if handle_key(key.code, key.modifiers, app) {
+                        break;
+                    }
                 }
+                Event::Resize(_, _) => {
+                    // Handled automatically on the next draw call
+                }
+                _ => {}
             }
-            Event::Resize(_, _) => {
-                // Handled automatically on the next draw call
+        } else {
+            // Timeout: auto-refresh in Normal and Filter modes only
+            match app.mode {
+                Mode::Normal => app.load_notifications(),
+                Mode::Filter => {
+                    app.load_notifications();
+                    app.update_display_list();
+                }
+                _ => {}
             }
-            _ => {}
         }
     }
     Ok(())
