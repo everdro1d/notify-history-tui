@@ -309,7 +309,10 @@ fn render_dots(f: &mut Frame, app: &App, area: Rect, colors: &AppColors, show_he
         area.height,
     );
 
-    render_dots_content(f, app, dots_area, colors);
+    // Always cap the dot budget as if [?] is present, so toggling the hint bar
+    // never changes how many dots are shown.
+    let constrained_width = area.width.saturating_sub(3) as usize;
+    render_dots_content(f, app, dots_area, colors, constrained_width);
 
     // Render [?] right-aligned when the hints bar is hidden.
     if show_help_hint {
@@ -330,7 +333,7 @@ fn render_dots(f: &mut Frame, app: &App, area: Rect, colors: &AppColors, show_he
     }
 }
 
-fn render_dots_content(f: &mut Frame, app: &App, area: Rect, colors: &AppColors) {
+fn render_dots_content(f: &mut Frame, app: &App, area: Rect, colors: &AppColors, constrained_width: usize) {
     let n = app.num_pages();
     if n <= 1 {
         f.render_widget(
@@ -340,12 +343,15 @@ fn render_dots_content(f: &mut Frame, app: &App, area: Rect, colors: &AppColors)
         return;
     }
 
-    let width = area.width as usize;
+    // `budget` governs how many dots are shown (capped as if [?] is always present).
+    // `render_width` is the actual draw area, used only for centering.
+    let budget = constrained_width;
+    let render_width = area.width as usize;
     // Each dot is 1 col, spaces between are 1 col → total = n * 2 - 1
     let full_width = n * 2 - 1;
 
     // ── All dots fit: render normally ────────────────────────────────────────
-    if full_width <= width {
+    if full_width <= budget {
         let mut dot_spans: Vec<Span<'static>> = Vec::new();
         for i in 0..n {
             let (ch, style) = if i == app.page {
@@ -358,7 +364,7 @@ fn render_dots_content(f: &mut Frame, app: &App, area: Rect, colors: &AppColors)
                 dot_spans.push(Span::styled(" ".to_owned(), Style::default().bg(colors.bg)));
             }
         }
-        let pad = width.saturating_sub(full_width) / 2;
+        let pad = render_width.saturating_sub(full_width) / 2;
         let mut all: Vec<Span<'static>> =
             vec![Span::styled(" ".repeat(pad), Style::default().bg(colors.bg))];
         all.extend(dot_spans);
@@ -370,7 +376,7 @@ fn render_dots_content(f: &mut Frame, app: &App, area: Rect, colors: &AppColors)
     }
 
     // ── Below minimum width: render blank ────────────────────────────────────
-    if width < DOTS_MIN_WIDTH {
+    if budget < DOTS_MIN_WIDTH {
         f.render_widget(
             Paragraph::new("").style(Style::default().bg(colors.bg)),
             area,
@@ -380,9 +386,9 @@ fn render_dots_content(f: &mut Frame, app: &App, area: Rect, colors: &AppColors)
 
     // ── Truncated rendering ──────────────────────────────────────────────────
     // Each marker is DOTS_MARKER_WIDTH cols when present (both = 2*DOTS_MARKER_WIDTH - 1 fixed chars).
-    // Solve for k visible dots: (2*DOTS_MARKER_WIDTH - 1) + 2k ≤ width  →  k = (width - (2*DOTS_MARKER_WIDTH - 1)) / 2, min 1.
+    // Solve for k visible dots: (2*DOTS_MARKER_WIDTH - 1) + 2k ≤ budget  →  k = (budget - (2*DOTS_MARKER_WIDTH - 1)) / 2, min 1.
     // k is always ≥ 1 due to .max(1) and the DOTS_MIN_WIDTH guard above.
-    let k = ((width - (2 * DOTS_MARKER_WIDTH - 1)) / 2).max(1);
+    let k = ((budget - (2 * DOTS_MARKER_WIDTH - 1)) / 2).max(1);
 
     // Centre the window on the current page, then clamp so it stays in bounds.
     let half = (k - 1) / 2;
@@ -435,7 +441,7 @@ fn render_dots_content(f: &mut Frame, app: &App, area: Rect, colors: &AppColors)
 
     // Centre the assembled content in the row.
     let content_width: usize = spans.iter().map(|s| s.content.width()).sum();
-    let pad = width.saturating_sub(content_width) / 2;
+    let pad = render_width.saturating_sub(content_width) / 2;
     let mut all: Vec<Span<'static>> =
         vec![Span::styled(" ".repeat(pad), Style::default().bg(colors.bg))];
     all.extend(spans);
