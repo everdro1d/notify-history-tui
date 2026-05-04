@@ -18,6 +18,13 @@ mod ui;
 use app::{App, Mode};
 use config::Config;
 
+// ── Constants ─────────────────────────────────────────────────────────────────
+
+/// Minimum terminal width (columns) required for normal operation.
+pub const MIN_TERMINAL_WIDTH: u16 = 11;
+/// Minimum terminal height (rows) required for normal operation.
+pub const MIN_TERMINAL_HEIGHT: u16 = 11;
+
 // ── CLI ───────────────────────────────────────────────────────────────────────
 
 #[derive(Parser)]
@@ -73,7 +80,12 @@ fn run_event_loop(
     };
 
     loop {
-        terminal.draw(|f| ui::draw(f, app))?;
+        let size = terminal.size()?;
+        if size.width < MIN_TERMINAL_WIDTH || size.height < MIN_TERMINAL_HEIGHT {
+            terminal.draw(|f| ui::draw_too_small(f, MIN_TERMINAL_WIDTH, MIN_TERMINAL_HEIGHT))?;
+        } else {
+            terminal.draw(|f| ui::draw(f, app))?;
+        }
 
         let got_event = match poll_timeout {
             Some(timeout) => event::poll(timeout)?,
@@ -161,7 +173,10 @@ fn handle_normal(code: KeyCode, _mods: KeyModifiers, app: &mut App) -> bool {
                 app.mode = Mode::ConfirmClearSelected;
             }
 
-        KeyCode::Char('?') => app.mode = Mode::Help,
+        KeyCode::Char('?') => {
+            app.help_page = 0;
+            app.mode = Mode::Help;
+        }
 
         KeyCode::F(1) => app.toggle_hints(),
 
@@ -229,6 +244,8 @@ fn handle_help(code: KeyCode, app: &mut App) {
         KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('?') => {
             app.mode = Mode::Normal;
         }
+        KeyCode::Left | KeyCode::Char('h') => app.help_prev_page(),
+        KeyCode::Right | KeyCode::Char('l') => app.help_next_page(),
         _ => {}
     }
 }

@@ -62,6 +62,11 @@ pub struct App {
     /// per-session with F1.
     pub show_hints: bool,
 
+    /// Current page inside the help / keybinds popup (0-based).
+    pub help_page: usize,
+    /// Total pages inside the help / keybinds popup (updated each frame by render_help_popup).
+    pub help_total_pages: usize,
+
     filter: Filter,
 }
 
@@ -85,6 +90,8 @@ impl App {
             rows_per_notif,
             effective_body_lines: body_lines,
             show_hints,
+            help_page: 0,
+            help_total_pages: 1,
             filter: Filter::new(),
         };
         app.load_notifications();
@@ -272,6 +279,20 @@ impl App {
     /// Toggle the hint bar visibility for the current session (not persisted).
     pub fn toggle_hints(&mut self) {
         self.show_hints = !self.show_hints;
+    }
+
+    /// Navigate to the previous page of the help popup (no-op on first page).
+    pub fn help_prev_page(&mut self) {
+        if self.help_page > 0 {
+            self.help_page -= 1;
+        }
+    }
+
+    /// Navigate to the next page of the help popup (no-op on last page).
+    pub fn help_next_page(&mut self) {
+        if self.help_page + 1 < self.help_total_pages {
+            self.help_page += 1;
+        }
     }
 
     // ── Mutations ─────────────────────────────────────────────────────────────
