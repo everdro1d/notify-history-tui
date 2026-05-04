@@ -100,15 +100,17 @@ pub fn draw(f: &mut Frame, app: &mut App) {
         render_hints(f, app, chunks[chunk_idx], &colors);
     }
 
-    // Modal overlays
-    match &app.mode {
+    // Modal overlays – clone mode first so the borrow of app.mode is released
+    // before we pass `app` mutably into render_help_popup.
+    let mode = app.mode.clone();
+    match mode {
         Mode::ConfirmClearAll => {
             render_confirm_dialog(f, area, &colors, "Clear ALL notifications?");
         }
         Mode::ConfirmClearSelected => {
             render_confirm_dialog(f, area, &colors, "Clear SELECTED notifications?");
         }
-        Mode::Help => render_help_popup(f, area, &colors),
+        Mode::Help => render_help_popup(f, app, area, &colors),
         _ => {}
     }
 }
@@ -207,7 +209,37 @@ fn wrap_to_cols(text: &str, max_cols: usize) -> Vec<(String, usize)> {
     result
 }
 
-// ── Notification list ─────────────────────────────────────────────────────────
+/// Word-wrap `text` into sub-lines that each fit within `max_cols` display columns.
+/// Breaks only on whitespace boundaries. A single word that is wider than `max_cols`
+/// is still placed on its own line (the caller is responsible for truncation).
+/// An empty `text` produces a single entry `""`.
+fn word_wrap_to_cols(text: &str, max_cols: usize) -> Vec<String> {
+    if max_cols == 0 || text.is_empty() {
+        return vec![text.to_string()];
+    }
+    let mut lines: Vec<String> = Vec::new();
+    let mut current = String::new();
+    let mut current_w: usize = 0;
+    for word in text.split_whitespace() {
+        let word_w = word.width();
+        if current.is_empty() {
+            current.push_str(word);
+            current_w = word_w;
+        } else if current_w + 1 + word_w <= max_cols {
+            current.push(' ');
+            current.push_str(word);
+            current_w += 1 + word_w;
+        } else {
+            lines.push(std::mem::take(&mut current));
+            current.push_str(word);
+            current_w = word_w;
+        }
+    }
+    if !current.is_empty() || lines.is_empty() {
+        lines.push(current);
+    }
+    lines
+}
 
 /// Append trailing spaces so the line's spans visually fill `width` columns.
 fn pad_line_to_width(mut spans: Vec<Span<'static>>, width: u16, pad_style: Style) -> Vec<Span<'static>> {
@@ -647,20 +679,47 @@ fn render_filter_bar(f: &mut Frame, app: &App, area: Rect, colors: &AppColors) {
 // ── Confirm dialog ────────────────────────────────────────────────────────────
 
 fn render_confirm_dialog(f: &mut Frame, area: Rect, colors: &AppColors, message: &str) {
-    let buttons = "[y/Enter] Yes  [n/Esc] No";
-    let full_msg = format!("{} \u{2014} {}", message, buttons);
+    let buttons_combined = "[y/Enter] Yes  [n/Esc] No";
+    let button_yes = "[y/Enter] Yes";
+    let button_no = "[n/Esc] No";
 
-    // Prefer single-line layout; fall back to two lines on narrow terminals.
-    let (content_lines, popup_h): (Vec<String>, u16) =
-        if full_msg.width() as u16 + 2 <= area.width {
-            (vec![full_msg], 3)
+    // Maximum inner width available (terminal width minus two border columns).
+    let max_inner_w = (area.width as usize).saturating_sub(2);
+
+    // Determine the best layout, trying progressively more compact arrangements.
+    //
+    //   1. Single line:  "message — [y/Enter] Yes  [n/Esc] No"
+    //   2. Two lines:    message / combined buttons  (word-wrap message if needed)
+    //   3. Three lines:  word-wrapped message / "[y/Enter] Yes" / "[n/Esc] No"
+    let content_lines: Vec<String> = {
+        let single = format!("{} \u{2014} {}", message, buttons_combined);
+
+        if single.width() <= max_inner_w {
+            // Layout 1 – everything on one line.
+            vec![single]
         } else {
-            (vec![message.to_string(), buttons.to_string()], 4)
-        };
+            let wrapped_msg = word_wrap_to_cols(message, max_inner_w);
+            let mut with_combined = wrapped_msg.clone();
+            with_combined.push(buttons_combined.to_string());
 
-    let content_w = content_lines.iter().map(|l| l.width()).max().unwrap_or(0) as u16;
-    let popup_w = (content_w + 2).min(area.width);
-    let popup_h = popup_h.min(area.height);
+            if with_combined.iter().all(|l| l.width() <= max_inner_w) {
+                // Layout 2 – word-wrapped message then combined buttons.
+                with_combined
+            } else {
+                // Layout 3 – word-wrapped message then each button on its own line.
+                let mut v = word_wrap_to_cols(message, max_inner_w);
+                v.push(button_yes.to_string());
+                v.push(button_no.to_string());
+                v
+            }
+        }
+    };
+
+    // Popup dimensions: just wide enough for the longest line, tall enough for all lines.
+    let max_line_w = content_lines.iter().map(|l| l.width()).max().unwrap_or(0);
+    let popup_w = (max_line_w + 2).min(area.width as usize) as u16;
+    let popup_h = (content_lines.len() + 2).min(area.height as usize) as u16;
+
     if popup_w < 2 || popup_h < 2 {
         return;
     }
@@ -678,11 +737,21 @@ fn render_confirm_dialog(f: &mut Frame, area: Rect, colors: &AppColors, message:
     f.render_widget(Clear, popup);
     f.render_widget(block, popup);
 
+    let inner_w = inner.width as usize;
+    let fg_s = Style::default().fg(colors.fg).bg(colors.bg);
+
+    // Center each line horizontally within the inner area.
     let text: Vec<Line<'static>> = content_lines
         .into_iter()
         .take(inner.height as usize)
-        .map(|l| Line::from(Span::styled(l, Style::default().fg(colors.fg).bg(colors.bg))))
+        .map(|l| {
+            let line_w = l.width();
+            let pad = inner_w.saturating_sub(line_w) / 2;
+            let padded = format!("{}{}", " ".repeat(pad), l);
+            Line::from(Span::styled(padded, fg_s))
+        })
         .collect();
+
     f.render_widget(
         Paragraph::new(Text::from(text)).style(Style::default().bg(colors.bg)),
         inner,
@@ -691,61 +760,208 @@ fn render_confirm_dialog(f: &mut Frame, area: Rect, colors: &AppColors, message:
 
 // ── Help popup ────────────────────────────────────────────────────────────────
 
-fn render_help_popup(f: &mut Frame, area: Rect, colors: &AppColors) {
-    let rows: &[&str] = &[
-        " r        Refresh",
-        " c        Clear all",
-        " x        Delete current",
-        " q        Quit",
-        " g        Go to start",
-        " G        Go to end",
-        " /        Filter",
-        " s        Toggle select",
-        " S        Delete selected",
-        " ?        Show keybinds",
-        " F1       Toggle hint bar",
-        " ↑ / k    Move up",
-        " ↓ / j    Move down",
-        " ← / h    Previous page",
-        " → / l    Next page",
-        " PgUp     Previous page",
-        " PgDn     Next page",
-        "",
-        " Esc      Close help",
+fn render_help_popup(f: &mut Frame, app: &mut App, area: Rect, colors: &AppColors) {
+    const TITLE: &str = " Keybindings ";
+    // Minimum popup width so the title is not clipped by the border corners.
+    const TITLE_MIN_W: usize = TITLE.len() + 2;
+
+    // Structured entries: (key, description).  Both empty ⟹ blank separator line.
+    let entries: &[(&str, &str)] = &[
+        ("r", "Refresh"),
+        ("c", "Clear all"),
+        ("x", "Delete current"),
+        ("q", "Quit"),
+        ("g", "Go to start"),
+        ("G", "Go to end"),
+        ("/", "Filter"),
+        ("s", "Toggle select"),
+        ("S", "Delete selected"),
+        ("?", "Show keybinds"),
+        ("F1", "Toggle hint bar"),
+        ("↑ / k", "Move up"),
+        ("↓ / j", "Move down"),
+        ("← / h", "Previous page"),
+        ("→ / l", "Next page"),
+        ("PgUp", "Previous page"),
+        ("PgDn", "Next page"),
+        ("", ""),
+        ("Esc", "Close help"),
     ];
 
-    let popup_w: u16 = 32u16.min(area.width);
-    let popup_h: u16 = (rows.len() as u16 + 2).min(area.height.saturating_sub(2));
+    // Key column = widest key display width.
+    let key_col: usize = entries.iter().map(|(k, _)| k.width()).max().unwrap_or(0);
+
+    // Row layout: 1 leading space + key (padded to key_col) + 1 sep space + desc.
+    // overhead = columns consumed before the description text begins.
+    let overhead: usize = 1 + key_col + 1;
+
+    // Maximum inner width we can actually use (terminal width minus two border cols).
+    let max_inner_w = (area.width as usize).saturating_sub(2);
+    let desc_avail = max_inner_w.saturating_sub(overhead);
+
+    // ── Build display rows (key, desc_line) ──────────────────────────────────
+    // key == "" && desc == ""  → blank separator
+    // key == ""  && desc != "" → continuation line (indent only, no key rendered)
+    // key != ""                → first line of an entry
+    let mut display_rows: Vec<(&str, String)> = Vec::new();
+
+    for &(key, desc) in entries {
+        // Blank separator.
+        if key.is_empty() && desc.is_empty() {
+            display_rows.push(("", String::new()));
+            continue;
+        }
+
+        if desc.is_empty() || desc_avail == 0 {
+            // No room (or no content) for a description – show key only.
+            display_rows.push((key, String::new()));
+            continue;
+        }
+
+        if desc.width() <= desc_avail {
+            // Description fits on one line – no wrapping needed.
+            display_rows.push((key, desc.to_string()));
+        } else {
+            // Step 2: word-wrap the description.
+            let wrapped = word_wrap_to_cols(desc, desc_avail);
+            for (i, mut line) in wrapped.into_iter().enumerate() {
+                // Step 3: truncate any wrapped line that is still too long
+                // (happens when a single word exceeds desc_avail).
+                if line.width() > desc_avail {
+                    line = if desc_avail >= 4 {
+                        let t = truncate_to_cols(&line, desc_avail.saturating_sub(3));
+                        format!("{t}...")
+                    } else {
+                        truncate_to_cols(&line, desc_avail)
+                    };
+                }
+                let sentinel = if i == 0 { key } else { "\x00" };
+                display_rows.push((sentinel, line));
+            }
+        }
+    }
+
+    // ── Compute popup width ───────────────────────────────────────────────────
+    let max_row_w: usize = display_rows
+        .iter()
+        .map(|(k, d)| {
+            if k.is_empty() && d.is_empty() {
+                0 // blank separator
+            } else {
+                overhead + d.width()
+            }
+        })
+        .max()
+        .unwrap_or(0);
+
+    let popup_w = (max_row_w + 2).max(TITLE_MIN_W).min(area.width as usize) as u16;
+    let inner_w = popup_w.saturating_sub(2) as usize;
+
+    // ── Pagination ────────────────────────────────────────────────────────────
+    let total_rows = display_rows.len();
+    // Maximum inner height this popup can occupy.
+    let max_inner_h = (area.height as usize).saturating_sub(2).max(1);
+
+    let (rows_per_page, total_pages, show_footer) = if total_rows <= max_inner_h {
+        (max_inner_h, 1usize, false)
+    } else {
+        // Reserve one inner row for the "← X/N pages →" footer.
+        let rpp = max_inner_h.saturating_sub(1).max(1);
+        let tp = total_rows.div_ceil(rpp);
+        (rpp, tp, true)
+    };
+
+    app.help_total_pages = total_pages;
+    if app.help_page >= total_pages {
+        app.help_page = total_pages.saturating_sub(1);
+    }
+
+    let page_start = app.help_page * rows_per_page;
+    let page_end = (page_start + rows_per_page).min(total_rows);
+    let page_row_count = page_end - page_start;
+
+    let inner_h = page_row_count + usize::from(show_footer);
+    let popup_h = (inner_h + 2).min(area.height as usize) as u16;
+
     if popup_w < 2 || popup_h < 2 {
         return;
     }
+
     let popup_x = area.x + area.width.saturating_sub(popup_w) / 2;
     let popup_y = area.y + area.height.saturating_sub(popup_h) / 2;
     let popup = Rect::new(popup_x, popup_y, popup_w, popup_h);
 
     let block = Block::default()
         .borders(Borders::ALL)
-        .title(" Keybindings ")
+        .title(TITLE)
         .border_style(Style::default().fg(colors.accent))
         .style(Style::default().bg(colors.bg));
-    let inner = block.inner(popup);
-
-    let text: Vec<Line<'static>> = rows
-        .iter()
-        .take(inner.height as usize)
-        .map(|row| {
-            Line::from(Span::styled(
-                row.to_string(),
-                Style::default().fg(colors.fg).bg(colors.bg),
-            ))
-        })
-        .collect();
+    let inner_rect = block.inner(popup);
 
     f.render_widget(Clear, popup);
     f.render_widget(block, popup);
+
+    let fg_s = Style::default().fg(colors.fg).bg(colors.bg);
+    let key_s = Style::default().fg(colors.accent).bg(colors.bg);
+    let dim_s = Style::default()
+        .fg(colors.fg)
+        .bg(colors.bg)
+        .add_modifier(Modifier::DIM);
+    let accent_s = Style::default().fg(colors.accent).bg(colors.bg);
+
+    let mut lines: Vec<Line<'static>> = Vec::new();
+
+    for (sentinel, desc) in display_rows.iter().skip(page_start).take(page_row_count) {
+        let line = if sentinel.is_empty() && desc.is_empty() {
+            // Blank separator row.
+            Line::from(Span::styled(String::new(), fg_s))
+        } else if *sentinel == "\x00" {
+            // Continuation line – indent to align with the description column.
+            Line::from(vec![
+                Span::styled(" ".repeat(overhead), fg_s),
+                Span::styled(desc.clone(), fg_s),
+            ])
+        } else {
+            // First line of an entry: key (accent) then description.
+            let key_pad = key_col.saturating_sub(sentinel.width());
+            Line::from(vec![
+                Span::styled(" ".to_string(), fg_s),
+                Span::styled(sentinel.to_string(), key_s),
+                Span::styled(" ".repeat(key_pad + 1), fg_s),
+                Span::styled(desc.clone(), fg_s),
+            ])
+        };
+        lines.push(line);
+    }
+
+    // ── Pagination footer (only when there is more than one page) ─────────────
+    if show_footer {
+        let page_str = format!("{}/{} pages", app.help_page + 1, total_pages);
+        let page_str_w = page_str.width();
+        let has_prev = app.help_page > 0;
+        let has_next = app.help_page + 1 < total_pages;
+
+        // Layout: [←][pad_l][page_str][pad_r][→]
+        // Total = 1 + pad_l + page_str_w + pad_r + 1 = inner_w
+        let total_space = inner_w.saturating_sub(2 + page_str_w);
+        let pad_l = total_space / 2;
+        let pad_r = total_space - pad_l;
+
+        let left_arrow = if has_prev { "←" } else { " " };
+        let right_arrow = if has_next { "→" } else { " " };
+
+        lines.push(Line::from(vec![
+            Span::styled(left_arrow.to_string(), accent_s),
+            Span::styled(" ".repeat(pad_l), dim_s),
+            Span::styled(page_str, dim_s),
+            Span::styled(" ".repeat(pad_r), dim_s),
+            Span::styled(right_arrow.to_string(), accent_s),
+        ]));
+    }
+
     f.render_widget(
-        Paragraph::new(Text::from(text)).style(Style::default().bg(colors.bg)),
-        inner,
+        Paragraph::new(Text::from(lines)).style(Style::default().bg(colors.bg)),
+        inner_rect,
     );
 }
 
@@ -783,4 +999,33 @@ fn styled_with_matches(
         spans.push(Span::styled(buf, if in_match { matched } else { normal }));
     }
     spans
+}
+
+// ── Terminal-too-small screen ─────────────────────────────────────────────────
+
+/// Render a plain "terminal too small" message instead of the normal TUI.
+/// The message is character-wrapped to fit whatever width is available.
+pub fn draw_too_small(f: &mut Frame, min_w: u16, min_h: u16) {
+    let area = f.area();
+    let msg = format!(
+        "Terminal too small to function, please resize the terminal window to at least {min_w} x {min_h}."
+    );
+
+    let wrap_w = area.width as usize;
+    let wrapped: Vec<String> = if wrap_w == 0 {
+        vec![msg]
+    } else {
+        wrap_to_cols(&msg, wrap_w)
+            .into_iter()
+            .map(|(s, _)| s)
+            .collect()
+    };
+
+    let lines: Vec<Line<'static>> = wrapped
+        .into_iter()
+        .map(|l| Line::from(Span::raw(l)))
+        .collect();
+
+    f.render_widget(Clear, area);
+    f.render_widget(Paragraph::new(Text::from(lines)), area);
 }
