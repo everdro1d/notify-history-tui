@@ -1,5 +1,5 @@
 use serde::Deserialize;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 // ── Sub-configs ───────────────────────────────────────────────────────────────
 
@@ -108,10 +108,14 @@ pub struct Config {
 
 impl Config {
     /// Load config from `~/.config/notify-history/config.toml`.
+    /// If the file does not exist, write a commented default config first.
     /// Falls back to defaults if the file is absent or malformed.
     pub fn load() -> Self {
         let path = Self::config_path();
         if let Some(p) = path {
+            if !p.exists() {
+                Self::write_defaults(&p);
+            }
             if let Ok(content) = std::fs::read_to_string(&p) {
                 if let Ok(cfg) = toml::from_str::<Config>(&content) {
                     return cfg;
@@ -119,6 +123,53 @@ impl Config {
             }
         }
         Config::default()
+    }
+
+    /// Write a commented default config file to `path`, creating parent directories as needed.
+    /// Silently ignores any I/O error.
+    fn write_defaults(path: &Path) {
+        if let Some(dir) = path.parent() {
+            if std::fs::create_dir_all(dir).is_err() {
+                return;
+            }
+        }
+        let _ = std::fs::write(path, Self::default_toml_content());
+    }
+
+    /// Returns a hand-crafted, fully-commented TOML string with all default values.
+    fn default_toml_content() -> &'static str {
+        r##"[display]
+# Show the application name for each notification.
+show_app = true
+
+# Number of body lines shown per notification (0-4).
+body_lines = 3
+
+# Show the keybind hint bar at the bottom (can be toggled per-session with F1).
+show_hints = true
+
+# Automatically refresh the notification list every N seconds (0 = disabled).
+refresh_time = 5
+
+# When true, show literal escape sequences (e.g. \n) in the notification body.
+# When false (default), convert them to real characters for display.
+escape_body = false
+
+[persistence]
+# Persist notification history across reboots.
+enabled = false
+
+# Maximum number of notifications to keep in history (0 = unlimited).
+max_history = 0
+
+[colors]
+# Hex color strings for the TUI.
+foreground = "#cdd6f4"
+background = "#1e1e2e"
+accent     = "#89b4fa"
+highlight  = "#313244"
+matching   = "#a6e3a1"
+"##
     }
 
     pub fn config_path() -> Option<PathBuf> {
