@@ -708,6 +708,7 @@ fn render_confirm_dialog(f: &mut Frame, area: Rect, colors: &AppColors, message:
             } else {
                 // Layout 3 – word-wrapped message then each button on its own line.
                 let mut v = word_wrap_to_cols(message, max_inner_w);
+                v.push("".to_string());
                 v.push(button_yes.to_string());
                 v.push(button_no.to_string());
                 v
