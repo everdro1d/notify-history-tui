@@ -21,7 +21,7 @@ use config::Config;
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 /// Minimum terminal width (columns) required for normal operation.
-pub const MIN_TERMINAL_WIDTH: u16 = 11;
+pub const MIN_TERMINAL_WIDTH: u16 = 15;
 /// Minimum terminal height (rows) required for normal operation.
 pub const MIN_TERMINAL_HEIGHT: u16 = 11;
 
