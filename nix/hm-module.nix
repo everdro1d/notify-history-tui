@@ -144,7 +144,7 @@ in
 
   config = mkIf cfg.enable {
     # Install the TUI binary
-    home.packages = [ cfg.tui.package ];
+    home.packages = [ cfg.tui.package cfg.ctl.package ];
 
     # Write config.toml
     xdg.configFile."notify-history/config.toml".source = configFile;
