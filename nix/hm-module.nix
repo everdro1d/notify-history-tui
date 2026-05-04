@@ -24,11 +24,13 @@ let
     display = {
       show_app = cfg.showApp;
       body_lines = cfg.bodyLines;
+      show_hints = cfg.showHints;
       refresh_time = cfg.refreshTime;
       escape_body = cfg.escapeBody;
     };
     persistence = {
       enabled = cfg.persistence;
+      max_history = cfg.maxHistory;
     };
     colors = {
       foreground = cfg.colors.foreground;
@@ -65,7 +67,7 @@ in
 
     bodyLines = mkOption {
       type = types.ints.between 0 4;
-      default = 4;
+      default = 3;
       description = "Number of body lines displayed per notification (0–4).";
     };
 
@@ -73,6 +75,12 @@ in
       type = types.ints.unsigned;
       default = 5;
       description = "Auto-refresh interval in seconds (0 = disabled).";
+    };
+
+    showHints = mkOption {
+      type = types.bool;
+      default = true;
+      description = "Show the keybind hint bar at the bottom (can be toggled per-session with F1).";
     };
 
     escapeBody = mkOption {
@@ -95,6 +103,12 @@ in
         When false, history is stored in <code>/tmp/notification-history</code>
         and cleared on shutdown.
       '';
+    };
+
+    maxHistory = mkOption {
+      type = types.ints.unsigned;
+      default = 0;
+      description = "Maximum number of notifications to keep in history (0 = unlimited).";
     };
 
     # ── Colour scheme ─────────────────────────────────────────────────────────
