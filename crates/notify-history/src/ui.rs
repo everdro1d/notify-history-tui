@@ -764,6 +764,9 @@ fn render_help_popup(f: &mut Frame, app: &mut App, area: Rect, colors: &AppColor
     const TITLE: &str = " Keybindings ";
     // Minimum popup width so the title is not clipped by the border corners.
     const TITLE_MIN_W: usize = TITLE.len() + 2;
+    // Sentinel stored as the "key" field of a display row to mark continuation lines
+    // (second and later wrapped lines of a single entry's description).
+    const CONTINUATION: &str = "\x00";
 
     // Structured entries: (key, description).  Both empty ⟹ blank separator line.
     let entries: &[(&str, &str)] = &[
@@ -835,7 +838,7 @@ fn render_help_popup(f: &mut Frame, app: &mut App, area: Rect, colors: &AppColor
                         truncate_to_cols(&line, desc_avail)
                     };
                 }
-                let sentinel = if i == 0 { key } else { "\x00" };
+                let sentinel = if i == 0 { key } else { CONTINUATION };
                 display_rows.push((sentinel, line));
             }
         }
@@ -915,7 +918,7 @@ fn render_help_popup(f: &mut Frame, app: &mut App, area: Rect, colors: &AppColor
         let line = if sentinel.is_empty() && desc.is_empty() {
             // Blank separator row.
             Line::from(Span::styled(String::new(), fg_s))
-        } else if *sentinel == "\x00" {
+        } else if *sentinel == CONTINUATION {
             // Continuation line – indent to align with the description column.
             Line::from(vec![
                 Span::styled(" ".repeat(overhead), fg_s),
