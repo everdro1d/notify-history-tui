@@ -54,11 +54,15 @@ Create `~/.config/notify-history/config.toml` (all fields optional — defaults 
 
 ```toml
 [display]
-show_app   = true  # show app name next to title
-body_lines = 4     # body lines per notification (0–4)
+show_app     = true   # show app name next to title
+body_lines   = 3      # body lines per notification (0–4)
+show_hints   = true   # show keybind hint bar (toggle per-session with F1)
+refresh_time = 5      # auto-refresh every N seconds (0 = disabled)
+escape_body  = false  # false → expand \n/\t in bodies; true → show verbatim
 
 [persistence]
-enabled = false    # true → store history in ~/.local/state/notify-history/
+enabled     = false  # true → store history in ~/.local/state/notify-history/
+max_history = 0      # max notifications to keep (0 = unlimited)
 
 [colors]
 foreground = "#cdd6f4"  # text
@@ -141,10 +145,14 @@ This registers `notify-history-ctl` as a user-level systemd service that starts 
     tui.package = notify-history-tui.packages.${system}.notify-history;
     ctl.package = notify-history-tui.packages.${system}.notify-history-ctl;
 
-    daemon.enable = true;   # manage the daemon as a user service
-    persistence   = false;  # true → survive reboots
-    bodyLines     = 4;
+    daemon.enable = true;    # manage the daemon as a user service
+    persistence   = false;   # true → survive reboots
+    maxHistory    = 0;       # 0 = unlimited
+    bodyLines     = 3;
     showApp       = true;
+    showHints     = true;
+    refreshTime   = 5;
+    escapeBody    = false;
 
     colors = {
       foreground = "#cdd6f4";
