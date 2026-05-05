@@ -369,13 +369,16 @@ fn pid_is_running(pid: u32) -> bool {
     {
         let comm_path = format!("/proc/{}/comm", pid);
         if let Ok(comm) = fs::read_to_string(&comm_path) {
-            return comm.trim() == DAEMON_NAME;
+            // trunc. to 15 as TASK_COMM_LEN is 16 bytes incl. null terminator.
+            // the actual sting would only be 15 bytes after trimming.
+            let daemon_name_trunc = &DAEMON_NAME[..15.min(DAEMON_NAME.len())];
+            return comm.trim() == daemon_name_trunc;
         }
         // If /proc/<pid>/comm is unreadable the process likely vanished.
         false
     }
-    #[cfg(not(target_os = "linux"))]
-    true
+    // #[cfg(not(target_os = "linux"))]
+    // true
 }
 
 /// Check whether another instance is already running.
