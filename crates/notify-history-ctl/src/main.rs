@@ -8,8 +8,11 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 const PID_FILE: &str = "/tmp/notify-history-ctl.pid";
+const DAEMON_NAME: &str = "notify-history-ctl";
 const DELIMITER: &str = "[*]";
 const DEFAULT_HISTORY_FILE: &str = "/tmp/notification-history";
+/// How long to wait (ms) after killing the old instance for it to clean up.
+const KILL_CLEANUP_WAIT_MS: u64 = 200;
 
 #[derive(Parser)]
 #[command(
@@ -24,6 +27,10 @@ struct Args {
     /// Clear all notification history
     #[arg(long = "clear-history")]
     clear_history: bool,
+
+    /// Replace an already-running daemon instead of exiting
+    #[arg(long)]
+    replace: bool,
 
     /// Generate shell completions and print to stdout
     #[arg(long = "generate", value_name = "SHELL", hide = true)]
@@ -344,6 +351,66 @@ fn clear_history() {
     }
 }
 
+/// Return true if the process with the given PID is currently running AND its
+/// name matches the daemon binary, guarding against PID reuse.
+fn pid_is_running(pid: u32) -> bool {
+    // First check existence without sending a signal.
+    let alive = Command::new("kill")
+        .arg("-0")
+        .arg(pid.to_string())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false);
+    if !alive {
+        return false;
+    }
+    // On Linux, verify the process name via /proc to guard against PID reuse.
+    #[cfg(target_os = "linux")]
+    {
+        let comm_path = format!("/proc/{}/comm", pid);
+        if let Ok(comm) = fs::read_to_string(&comm_path) {
+            return comm.trim() == DAEMON_NAME;
+        }
+        // If /proc/<pid>/comm is unreadable the process likely vanished.
+        false
+    }
+    #[cfg(not(target_os = "linux"))]
+    true
+}
+
+/// Check whether another instance is already running.
+/// If `replace` is true, kill the other instance and return.
+/// Otherwise, print a message and exit.
+fn check_existing_instance(replace: bool) {
+    let pid_str = match fs::read_to_string(PID_FILE) {
+        Ok(s) => s,
+        Err(_) => return, // no PID file → no existing instance
+    };
+    let pid: u32 = match pid_str.trim().parse() {
+        Ok(p) => p,
+        Err(_) => return, // malformed PID file → ignore
+    };
+    if !pid_is_running(pid) {
+        return; // stale PID file → overwrite later
+    }
+    if replace {
+        match Command::new("kill").arg(pid.to_string()).status() {
+            Ok(s) if s.success() => {
+                println!("Replaced running daemon (PID {})", pid);
+                // Give the killed process time to clean up its PID file.
+                std::thread::sleep(std::time::Duration::from_millis(KILL_CLEANUP_WAIT_MS));
+            }
+            _ => {
+                eprintln!("Failed to kill existing daemon (PID {})", pid);
+                std::process::exit(1);
+            }
+        }
+    } else {
+        eprintln!("{} already running, use '--replace' to replace", DAEMON_NAME);
+        std::process::exit(1);
+    }
+}
+
 fn run_daemon() {
     let pid = std::process::id();
     if let Err(e) = fs::write(PID_FILE, pid.to_string()) {
@@ -426,5 +493,6 @@ fn main() {
         return;
     }
 
+    check_existing_instance(args.replace);
     run_daemon();
 }
